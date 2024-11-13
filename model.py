@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-from model_component import TactileEncoder, PoseDecoder
+from model_component import TactileVREncoder, PoseDecoder
 
 
 class SpatialSoftmax3D(torch.nn.Module):
@@ -58,8 +58,9 @@ class Tactile2PoseFeatureModel(nn.Module):
         
         self.window_size = config.WINDOW_SIZE
         self.action_list= config.ACTION_LIST
-        # multimodel feature encoder/decoder
-        self.feature_encoder = TactileEncoder(self.window_size)
+        self.vr_kp_len = config.VR_KP_LEN
+        
+        self.feature_encoder = TactileVREncoder(self.window_size, self.vr_kp_len)
         self.feature_decoder = PoseDecoder()
         
         
@@ -69,7 +70,7 @@ class Tactile2PoseFeatureModel(nn.Module):
         total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
         print(f'Total number of parameters: {total_params}')    
         
-    def forward(self, tactile_left, tactile_right):
+    def forward(self, tactile_left, tactile_right, keypoint_vr):
         multimodel_feature = self.feature_encoder(tactile_left, tactile_right)
         current_pose = self.feature_decoder(multimodel_feature)
         

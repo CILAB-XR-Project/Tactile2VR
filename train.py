@@ -8,12 +8,15 @@ from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from tqdm import tqdm
 import copy
+import random
 
 from config import Tactile2PoseConfig
+
 from model import Tactile2PoseFeatureModel, SpatialSoftmax3D
 from utils import DualOutput
 from dataloader import get_tactile_dataloaders
-
+from visualize import plotMultiKeypoint, plotTactile, plot3Dheatmap
+from const import VR_INDEXS
 
 def get_spatial_keypoint(keypoint):
     spatial_keypoint = copy.deepcopy(keypoint)
@@ -27,7 +30,7 @@ def get_keypoint_spatial_dis(keypoint_GT, keypoint_pred):
     xyz_diff = np.abs(dis)
     return eud, xyz_diff
 
-def run_feature_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, visualize=False, test_mode=False, device="cuda", name="train"):
+def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, visualize=False, test_mode=False, device="cuda", name="train"):
     if config.NAME == "tactile2pose":
         history = {
             "heatmap_loss": [],
@@ -52,52 +55,27 @@ def run_feature_epoch(config, model, dataloader, softmax, optimizer,  writer, ep
         model.train()
         # dataloader.shuffle_indices()
             
-    if config.PREDICT_MIDDLE:
-        target_idx = config.WINDOW_SIZE//2 - 1
-    else:
-        target_idx = config.WINDOW_SIZE - 1
     mse_loss = nn.MSELoss()
     pbar = tqdm(dataloader, total=len(dataloader), desc=f"{name} epoch: {epoch}")
-    for i, (input_tac_left, input_tac_right, input_hm, _, _, _, output_kp, _) in enumerate(pbar):
-        #Heatmap은?
-        heatmap = input_hm.clone()
-        heatmap[heatmap < 0.01] = 0
-        heatmap[heatmap > 0.01] *= 100
-        
+    for i, (input_tac_left, input_tac_right, input_kp, _) in enumerate(pbar):
+
         tactile_left = input_tac_left.to(device).float()
         tactile_right = input_tac_right.to(device).float()
-        heatmap = heatmap.to(device).float()
-        keypoint_label =  output_kp.to(device).float()
+        keypoint_vr = input_kp[:,:,VR_INDEXS, :].to(device).float()
+        keypoint_label =  input_kp.to(device).float()
 
+        heatmap_pred = model(tactile_left, tactile_right, keypoint_vr)
         
-        #일단 쪼갰다고 가정 후 loss 계산
-        if is_tactile2pose:
-            heatmap_pred = model(tactile_left, tactile_right)
-            heatmap_label = heatmap[:, target_idx]
-            heatmap_loss = mse_loss(heatmap_pred, heatmap_label) * 100
-            
-            heatmap_pred = torch.clip(heatmap_pred, 0, None)
-            keypoint_out, _ = softmax(heatmap_pred)
-            keypoint_loss = mse_loss(keypoint_out, keypoint_label) * 1000
-            
-            total_loss = heatmap_loss + keypoint_loss
-            
-            eud, _ = get_keypoint_spatial_dis(keypoint_out.detach().cpu().numpy(), keypoint_label.detach().cpu().numpy())
-            history["heatmap_loss"].append(heatmap_loss.item())
-            history["keypoint_loss"].append(keypoint_loss.item())
-            history["cm_L2_keypoint"].append(np.mean(eud))
-            
-        else:
-            tactile_left_pred, tactile_right_pred = model(heatmap)
-            tectile_left_label = tactile_left[:, target_idx]
-            tactile_right_label = tactile_right[:, target_idx]
-            tactile_left_loss = mse_loss(tactile_left_pred, tectile_left_label) * 100
-            tactile_right_loss = mse_loss(tactile_right_pred, tactile_right_label) * 100
-            total_loss = tactile_left_loss + tactile_right_loss
-            
-            history["tactile_left_loss"].append(tactile_left_loss.item())
-            history["tactile_right_loss"].append(tactile_right_loss.item())
-            
+        heatmap_pred = torch.clip(heatmap_pred, 0, None)
+        keypoint_out, _ = softmax(heatmap_pred)
+        keypoint_loss = mse_loss(keypoint_out, keypoint_label) * 1000
+        
+        total_loss = keypoint_loss
+        
+        eud, _ = get_keypoint_spatial_dis(keypoint_out.detach().cpu().numpy(), keypoint_label.detach().cpu().numpy())
+        history["keypoint_loss"].append(keypoint_loss.item())
+        history["cm_L2_keypoint"].append(np.mean(eud))
+
         history["total_loss"].append(total_loss.item())
             
 
@@ -105,14 +83,42 @@ def run_feature_epoch(config, model, dataloader, softmax, optimizer,  writer, ep
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
-            
+        
+        if i == 5:
+            break
+        
         pbar.set_description(
-            f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f}")
+            f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f} cm_L2={np.mean(eud):.2f}")
 
+        
     if visualize:
-        #TODO: visualize feature train
-        pass
-        #writer.
+        keypoint_np = keypoint_label.detach().cpu().numpy()
+        keypoint_pred_np = keypoint_out.detach().cpu().numpy()
+        tactile_left_np = tactile_left.detach().cpu().numpy()
+        tactile_right_np = tactile_right.detach().cpu().numpy()
+        heatmap_pred_np = heatmap_pred.detach().cpu().numpy()
+
+        k = random.randint(0, keypoint_np.shape[0]-1)
+
+        img1 = plotMultiKeypoint([keypoint_np[k]], limit=[(0, 1), (0, 1), (0, 1)])
+        img2 = plotMultiKeypoint([keypoint_pred_np[k]], limit=[(0, 1), (0, 1), (0, 1)])
+
+        if config.PREDICT_MIDDLE:
+            tactile_idx = config.WINDOW_SIZE//2 - 1
+        else:
+            tactile_idx = -1
+
+        img3 = plotTactile(tactile_left_np[k][tactile_idx])
+        img4 = plotTactile(tactile_right_np[k][tactile_idx])
+        img5 = plot3Dheatmap(heatmap_pred_np[k])
+
+        # Log images
+        writer.add_image(f'{name}/Images/Keypoint_True', img1, epoch, dataformats='HWC')
+        writer.add_image(f'{name}/Images/Keypoint_Pred', img2, epoch, dataformats='HWC')
+        writer.add_image(f'{name}/Images/TactileLeft', img3, epoch, dataformats='HWC')
+        writer.add_image(f'{name}/Images/TactileRight', img4, epoch, dataformats='HWC')
+        writer.add_image(f'{name}/Images/Heatmap_Pred', img5, epoch, dataformats='HWC')
+
         
     for key in history.keys():
         history[key] = np.mean(history[key])
@@ -163,28 +169,28 @@ if __name__ == "__main__":
     # Start train
     with DualOutput(os.path.join(writer.log_dir, "train_log.txt")):
         # multimodal feature train
-        print(f"===Start {config.NAME} Multimodal Feature Training===")      
+        print(f"===Start {config.NAME} Tactile2Pose Training===")      
         best_feature_val_loss = np.inf
 
         for epoch in range(config.EPOCHS):
-            train_history =  run_feature_epoch(config, model, train_dataloader, softmax, optimizer, writer, epoch, device=device, name="train")
-            valid_history = run_feature_epoch(config, model, valid_dataloader, softmax, optimizer, writer, epoch, test_mode=True, device=device, name="valid")
-            test_history = run_feature_epoch(config, model, test_dataloader,  softmax, optimizer, writer, epoch, test_mode=True, device=device, name="test")
+            train_history =  run_epoch(config, model, train_dataloader, softmax, optimizer, writer, epoch, device=device, name="train")
+            valid_history = run_epoch(config, model, valid_dataloader, softmax, optimizer, writer, epoch, test_mode=True, device=device, visualize=True, name="valid")
+            test_history = run_epoch(config, model, test_dataloader,  softmax, optimizer, writer, epoch, test_mode=True, device=device, visualize=True, name="test")
         
      
             feature_train_history = {}
             for key in train_history.keys():
-                feature_train_history["feature_train/" + key] = train_history[key]
+                feature_train_history["train/" + key] = train_history[key]
             for key in valid_history.keys():
-                feature_train_history["feature_valid/" + key] = valid_history[key]
+                feature_train_history["valid/" + key] = valid_history[key]
             for key in test_history.keys():
-                feature_train_history["feature_test/" + key] = test_history[key]
+                feature_train_history["test/" + key] = test_history[key]
 
             for key in feature_train_history.keys():
                 writer.add_scalar(key, feature_train_history[key], epoch)
 
             
-            val_loss = feature_train_history["feature_valid/total_loss"]
+            val_loss = feature_train_history["valid/total_loss"]
             if val_loss < best_feature_val_loss:
                 print(f"Best model found at epoch {epoch}. val_loss: {val_loss}")
                 best_feature_val_loss = val_loss

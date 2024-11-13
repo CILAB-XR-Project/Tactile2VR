@@ -1,4 +1,4 @@
-from const import ACTIVITY_LIST
+from const import ACTIVITY_LIST, VR_INDEXS
 import json
 # Base Configuration Class
 # Don't use this class directly. Instead, sub-class it and override
@@ -100,5 +100,5 @@ class Tactile2PoseConfig(BaseConfig):
     EPOCHS = 10
     BATCH_SIZE = 32
 
-    
+    VR_KP_LEN = len(VR_INDEXS)
 

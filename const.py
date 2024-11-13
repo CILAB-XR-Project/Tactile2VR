@@ -58,6 +58,12 @@ KEYPOINTS_NAMES_TO_INDEX = {
     'right_heel':  18,
 }
 
+VR_INDEXS = [
+    KEYPOINTS_NAMES_TO_INDEX["nose"],
+    KEYPOINTS_NAMES_TO_INDEX["left_wrist"],
+    KEYPOINTS_NAMES_TO_INDEX["right_wrist"]
+]
+
 HEAD_INDEXS = [0]
 SHOULDER_INDEXS = [1, 2]
 ELBOW_INDEXS = [3, 4]
