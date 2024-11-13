@@ -71,7 +71,7 @@ class Tactile2PoseFeatureModel(nn.Module):
         print(f'Total number of parameters: {total_params}')    
         
     def forward(self, tactile_left, tactile_right, keypoint_vr):
-        multimodel_feature = self.feature_encoder(tactile_left, tactile_right)
+        multimodel_feature = self.feature_encoder(tactile_left, tactile_right ,keypoint_vr)
         current_pose = self.feature_decoder(multimodel_feature)
         
         return current_pose

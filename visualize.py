@@ -27,8 +27,10 @@ def plotMultiKeypoint(keypoints, limit=None):
 
         xs = data[:, 0]
         ys = data[:, 1]
-        zs = data[:, 2]
-
+        zs = -data[:, 2]
+        z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
+        zs -= z_offset  # z축 중앙으로 평행 이동
+    
         for i in range(len(BODY_18_PAIRS)):
             index_1 = BODY_18_PAIRS[i][0]
             index_2 = BODY_18_PAIRS[i][1]

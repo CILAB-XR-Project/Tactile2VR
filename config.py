@@ -92,13 +92,13 @@ def print_square(dictionary):
 
 class Tactile2PoseConfig(BaseConfig):
     NAME = "tactile2pose"
-    WINDOW_SIZE = 40
+    WINDOW_SIZE = 20
     PREDICT_MIDDLE = False
     ACTION_LIST = ACTIVITY_LIST
     
     CACHE_SIZE = 100
-    EPOCHS = 10
-    BATCH_SIZE = 32
+    EPOCHS = 50
+    BATCH_SIZE = 64
 
     VR_KP_LEN = len(VR_INDEXS)
 

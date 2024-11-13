@@ -2,8 +2,8 @@ from torch.utils.data import Dataset, DataLoader, Subset
 from collections import OrderedDict
 from utils import get_action_type
 import numpy as np
+import os
 from pathlib import Path
-
 from const import TACTILE_SIZE, ACTIVITY_LIST
 
 def pad_tactile(a, shape):
@@ -41,7 +41,7 @@ class SlidingWindowDataset(Dataset):
 
         self.buffers = OrderedDict()  # Dictionary to hold the loaded data files
         self.file_indices, self.file_mappings = self._prepare_indices()
-        # self.shuffle_indices()
+        self.shuffle_indices()
         if "filter_by_action" in self.kwargs:
             if self.kwargs["filter_by_action"]:
                 print(f"Only use {self.kwargs['action_list']}")
@@ -161,7 +161,7 @@ class ShuffleDataloader(DataLoader):
         self.dataset.dataset.shuffle_indices()       
 
 
-def get_tactile2multimodal_dataloaders(data_dir, config):
+def get_tactile_dataloaders(data_dir, config):
     data_paths = sorted([str(path) for path in Path(data_dir).iterdir()])
     dataset = SlidingWindowDataset(data_paths, config.CACHE_SIZE, config)
     indices = list(range(len(dataset)))

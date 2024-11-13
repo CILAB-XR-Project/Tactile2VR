@@ -31,29 +31,17 @@ def get_keypoint_spatial_dis(keypoint_GT, keypoint_pred):
     return eud, xyz_diff
 
 def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, visualize=False, test_mode=False, device="cuda", name="train"):
-    if config.NAME == "tactile2pose":
-        history = {
-            "heatmap_loss": [],
-            "keypoint_loss": [],
-            "total_loss": [],
-            "cm_L2_keypoint": [],
-        }
-        is_tactile2pose = True
-    elif config.NAME == "pose2tactile":
-        history = {
-            "tactile_left_loss": [],
-            "tactile_right_loss": [],
-            "total_loss": []
-        }
-        is_tactile2pose = False
-    else:
-        raise ValueError(f"Invalid config name: {config.NAME}")
+    history = {
+        "keypoint_loss": [],
+        "total_loss": [],
+        "cm_L2_keypoint": [],
+    }
             
     if test_mode:
         model.eval()
     else:
         model.train()
-        # dataloader.shuffle_indices()
+        dataloader.shuffle_indices()
             
     mse_loss = nn.MSELoss()
     pbar = tqdm(dataloader, total=len(dataloader), desc=f"{name} epoch: {epoch}")
@@ -62,7 +50,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         tactile_left = input_tac_left.to(device).float()
         tactile_right = input_tac_right.to(device).float()
         keypoint_vr = input_kp[:,:,VR_INDEXS, :].to(device).float()
-        keypoint_label =  input_kp.to(device).float()
+        keypoint_label =  input_kp[:,-1,:,:].to(device).float()
 
         heatmap_pred = model(tactile_left, tactile_right, keypoint_vr)
         
@@ -83,12 +71,9 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
             optimizer.zero_grad()
             total_loss.backward()
             optimizer.step()
-        
-        if i == 5:
-            break
-        
+
         pbar.set_description(
-            f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f} cm_L2={np.mean(eud):.2f}")
+            f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f} L2={np.mean(eud):.2f}cm")
 
         
     if visualize:

@@ -96,9 +96,9 @@ class TactileVREncoder(nn.Module): # window_size * 32 * 22 -> 256*8*10
         multimodal_feature = torch.cat((feature_left, feature_right), dim=-1) # 256 * 8 * 10
         
         
-        keypoint_vr = keypoint_vr.view(keypoint_vr.shape[0]*keypoint_vr.shape[1], -1)
-        feature_kp_vr = self.vr_mlps_0(keypoint_vr)
-        feature_kp_vr = feature_kp_vr.view(left_tactile.shape[0], left_tactile.shape[1], multimodal_feature.shape[2], multimodal_feature.shape[3])
+        feature_kp_vr = keypoint_vr.view(keypoint_vr.shape[0]*keypoint_vr.shape[1], -1)
+        feature_kp_vr = self.vr_mlps_0(feature_kp_vr)
+        feature_kp_vr = feature_kp_vr.view(keypoint_vr.shape[0], keypoint_vr.shape[1], multimodal_feature.shape[2], multimodal_feature.shape[3])
         feature_kp_vr = self.vr_conv_0(feature_kp_vr)
         feature_kp_vr = self.vr_conv_1(feature_kp_vr)
         feature_kp_vr = self.vr_conv_2(feature_kp_vr) #32 * 8 * 10
