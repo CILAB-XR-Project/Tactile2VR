@@ -32,6 +32,41 @@ def split_list(array, ratio):
     return result
 
 
+def split_by_file(dataset, train_ratio=0.7, valid_ratio=0.2, test_ratio=0.1):
+    train_indices = []
+    valid_indices = []
+    test_indices = []
+    train_mappings = []
+    valid_mappings = []
+    test_mappings = []
+
+    cur_train_start = 0
+    cur_valid_start = 0
+    cur_test_start = 0
+    
+    for start, end, data_dir in dataset.file_mappings:
+        file_indices = list(range(start, end))
+        total_len = len(file_indices)
+        
+        train_len = int(total_len * train_ratio)
+        valid_len = int(total_len * valid_ratio)
+        test_len = total_len - train_len - valid_len
+        
+        train_indices.extend(file_indices[:train_len])
+        valid_indices.extend(file_indices[train_len:train_len + valid_len])
+        test_indices.extend(file_indices[-test_len:])
+        
+        # 각각의 매핑을 업데이트
+        train_mappings.append((cur_train_start, cur_train_start + train_len, data_dir))
+        valid_mappings.append((cur_valid_start, cur_valid_start + valid_len, data_dir))
+        test_mappings.append((cur_test_start, cur_test_start + test_len, data_dir))
+
+        cur_train_start += train_len
+        cur_valid_start += valid_len
+        cur_test_start += test_len
+    return (train_indices, valid_indices, test_indices), (train_mappings, valid_mappings, test_mappings)
+
+
 class SlidingWindowDataset(Dataset):
     def __init__(self, all_paths, cache_size, config, **kwargs):
         self.all_paths = all_paths
@@ -41,7 +76,8 @@ class SlidingWindowDataset(Dataset):
 
         self.buffers = OrderedDict()  # Dictionary to hold the loaded data files
         self.file_indices, self.file_mappings = self._prepare_indices()
-        self.shuffle_indices()
+        # self.shuffle_indices()
+        
         if "filter_by_action" in self.kwargs:
             if self.kwargs["filter_by_action"]:
                 print(f"Only use {self.kwargs['action_list']}")
@@ -68,7 +104,7 @@ class SlidingWindowDataset(Dataset):
             kp_path = os.path.join(data_dir, "keypoints.npy")
             kp = np.load(kp_path)
             data_len = kp.shape[0]
-            num_windows = data_len - self.config.WINDOW_SIZE*2 + 1
+            num_windows = data_len - self.config.WINDOW_SIZE + 1
             start = len(indices)
             indices.extend([(kp_path, i) for i in range(num_windows)])
             end = len(indices)
@@ -132,8 +168,9 @@ class SlidingWindowDataset(Dataset):
         return data
     
     def shuffle_indices(self):
+        np.random.seed(6897)
         np.random.shuffle(self.file_indices)
-        
+    
     def __len__(self):
         return len(self.file_indices)
 
@@ -164,9 +201,10 @@ class ShuffleDataloader(DataLoader):
 def get_tactile_dataloaders(data_dir, config):
     data_paths = sorted([str(path) for path in Path(data_dir).iterdir()])
     dataset = SlidingWindowDataset(data_paths, config.CACHE_SIZE, config)
-    indices = list(range(len(dataset)))
     
-    train_indices, valid_indices, test_indices = split_list(indices, [0.7, 0.2, 0.1])
+    (train_indices, valid_indices, test_indices), (train_mappings, valid_mappings, test_mappings) = split_by_file(
+        dataset, train_ratio=0.7, valid_ratio=0.2, test_ratio=0.1
+    )    
     train_dataset = Subset(dataset, train_indices)
     valid_dataset = Subset(dataset, valid_indices)
     test_dataset = Subset(dataset, test_indices)
@@ -177,7 +215,7 @@ def get_tactile_dataloaders(data_dir, config):
     train_dataloader = ShuffleDataloader(
         train_dataset,
         batch_size=config.BATCH_SIZE,
-        shuffle=False,
+        shuffle=True,
     )
     valid_dataloader = ShuffleDataloader(
         valid_dataset,
@@ -190,4 +228,4 @@ def get_tactile_dataloaders(data_dir, config):
         shuffle=False,
     )
     
-    return train_dataloader, valid_dataloader, test_dataloader
+    return (train_dataloader, valid_dataloader, test_dataloader), (train_dataset, valid_dataset, test_dataset), (train_mappings, valid_mappings, test_mappings)

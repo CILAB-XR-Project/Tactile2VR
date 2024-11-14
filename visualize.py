@@ -46,11 +46,13 @@ def plotMultiKeypoint(keypoints, limit=None):
     # plt.show()
     frame = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     img = frame.reshape(fig.canvas.get_width_height()[::-1] + (3,))[..., ::-1]
+    
+    ax.clear()
     plt.close()
     return img
 
 
-def plotMultiKeypointVideo(keypoints, limit=None):
+def plotMultiKeypointVideo(keypoints, limit=None, name=None):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     canvas = FigureCanvas(fig)
@@ -73,7 +75,9 @@ def plotMultiKeypointVideo(keypoints, limit=None):
         for kp in frame_data:
             xs = kp[:, 0]
             ys = kp[:, 1]
-            zs = kp[:, 2]
+            zs = -kp[:, 2]
+            z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
+            zs -= z_offset  # z축 중앙으로 평행 이동
 
             for i, pair in enumerate(BODY_18_PAIRS):
                 index_1, index_2 = pair
@@ -85,6 +89,8 @@ def plotMultiKeypointVideo(keypoints, limit=None):
             ax.scatter(xs, ys, zs, s=20, c=BODY_25_color[:len(kp)] / 255.0)
 
         # Draw the canvas, cache the buffer
+        if name is not None:
+            ax.set_title(name)
         canvas.draw()
         image = np.frombuffer(canvas.tostring_rgb(), dtype='uint8')
         image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
@@ -102,9 +108,12 @@ def plotTactile(data):
     fig.canvas.draw()
     frame = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
     img = frame.reshape(fig.canvas.get_width_height()[::-1] + (3,))[..., ::-1]
+    
+    ax.clear()
+    plt.close()
     return img
 
-def plotTactileVideo(data_sequence):
+def plotTactileVideo(data_sequence, name=None):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     canvas = FigureCanvas(fig)
@@ -114,7 +123,8 @@ def plotTactileVideo(data_sequence):
     for data in tqdm(data_sequence, desc="plotTactileVideo"):
         ax.clear()
         im = ax.imshow(data, cmap='viridis')
-
+        if name is not None:
+            ax.set_title(name)
         # Draw the canvas and convert to an image
         canvas.draw()
         image = np.frombuffer(canvas.tostring_rgb(), dtype='uint8')

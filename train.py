@@ -41,7 +41,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         model.eval()
     else:
         model.train()
-        dataloader.shuffle_indices()
+        # dataloader.shuffle_indices()
             
     mse_loss = nn.MSELoss()
     pbar = tqdm(dataloader, total=len(dataloader), desc=f"{name} epoch: {epoch}")
@@ -142,7 +142,8 @@ if __name__ == "__main__":
     
     #load data
     data_dir = "/app/raid/isaac/InsoleData/dataset/"
-    train_dataloader, valid_dataloader, test_dataloader = get_tactile_dataloaders(data_dir, config)
+    loaders, datasets, mappings = get_tactile_dataloaders(data_dir, config)
+    train_dataloader, valid_dataloader, test_dataloader = loaders
     
     # save config and train code
     config.save_to_json(os.path.join(log_dir, "config.json"))
