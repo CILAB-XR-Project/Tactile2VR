@@ -6,19 +6,34 @@ import numpy as np
 
 from model import Tactile2PoseFeatureModel
 from config import Tactile2PoseConfig
+from dataloader import get_tactile_dataloaders
 
 
 
 HOST = "127.0.0.1"
 PORT = 12345
 
+config = Tactile2PoseConfig()
+config.BATCH_SIZE = 1
+data_dir = "/app/raid/isaac/InsoleData/dataset/"
+loaders, datasets, mappings = get_tactile_dataloaders(data_dir, config)
+train_dataloader, valid_dataloader, test_dataloader = loaders
+
 
 def get_pose_aciton_data():
-    # 일단 랜덤값 전송
-    keypoints = np.random.rand(19, 3).tolist()  # 19개의 3D 좌표
-    action_class = np.random.randint(0, 4)      # 4개의 action class 중 하나 선택
+    data = next(iter(test_dataloader))
+    tac_left, tac_right, kp, action_idx = data
+    
+    keypoints = denormalize_keypoints(kp[0, -1, :, :]).numpy().tolist()
+    action_class = action_idx[0].item()
     return {'keypoints': keypoints, 'action_class': action_class}
 
+
+def denormalize_keypoints(normalized_keypoints):
+    restored_keypoints = normalized_keypoints.clone()
+    restored_keypoints[:,:2] -= 0.5
+    restored_keypoints *= 2
+    return restored_keypoints
 
 
 def main():
@@ -26,7 +41,7 @@ def main():
         s.bind((HOST, PORT))
         s.listen()
         print(f"Python 서버가 {PORT}:{PORT}에서 대기 중 입니다.")
-        
+        model_output_data = get_pose_aciton_data()
         conn, addr = s.accept()
         with conn:
             print(f"{addr}가 연결되었습니다.")
