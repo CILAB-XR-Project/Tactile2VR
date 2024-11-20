@@ -156,7 +156,7 @@ def plot3Dheatmap(_data):
     ax.set_zlabel('z')
     ax.view_init(-149, 33)
 
-    for j in range(19):
+    for j in range(3):
         frame = data[j]
         x,y,z = np.where(frame>0)
         ax.scatter(x, y, z, c=frame[x,y,z]*255, cmap=colors[j])
