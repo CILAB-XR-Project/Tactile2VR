@@ -1,10 +1,13 @@
 from torch.utils.data import Dataset, DataLoader, Subset
 from collections import OrderedDict
-from utils import get_action_type
 import numpy as np
 import os
+import torch
+import math
 from pathlib import Path
+
 from const import TACTILE_SIZE, ACTIVITY_LIST
+from utils import get_action_type
 
 def pad_tactile(a, shape):
     assert a.ndim == 3
@@ -31,6 +34,43 @@ def split_list(array, ratio):
     assert len(result)==len(ratio)
     return result
 
+def generate_heatmap(keypoint):  # (B, VR_kps, 3) -> (B, VR_kps, 20, 20, 18) 
+    def _gaussian(dis, mu, sigma):
+        return 1 / (mu * torch.sqrt(torch.tensor(2 * math.pi))) * torch.exp(-0.5 * ((dis - mu) / sigma)**2)
+
+    def _softmax(x):
+        x_max = torch.amax(x, dim=(-3, -2, -1), keepdim=True)  # torch.amax는 여러 차원에 대해 작동
+        exp_x = torch.exp(x - x_max)  # 오버플로우 방지
+        return exp_x / torch.sum(exp_x, dim=(-3, -2, -1), keepdim=True)
+    
+    size = [20, 20, 18]
+    # 3D voxel space 생성
+    pos_x, pos_y, pos_z = torch.meshgrid(
+        torch.linspace(0., 1., int(size[0])).to(keypoint.device),
+        torch.linspace(0., 1., int(size[1])).to(keypoint.device),
+        torch.linspace(0., 1., int(size[2])).to(keypoint.device)  
+    )
+    pos_x = pos_x.unsqueeze(0).unsqueeze(0) # (1, 1, 20, 20, 18)
+    pos_y = pos_y.unsqueeze(0).unsqueeze(0) # (1, 1, 20, 20, 18)
+    pos_z = pos_z.unsqueeze(0).unsqueeze(0) # (1, 1, 20, 20, 18)
+
+    # keypoint 확장
+    keypoint = keypoint.unsqueeze(-2).unsqueeze(-2).unsqueeze(-2)  # (B, window, VR_kps, 1, 1, 1, 3)
+
+    # 거리 계산 (Broadcasting)
+    dis = torch.sqrt(
+        (pos_x - keypoint[..., 0])**2 +
+        (pos_y - keypoint[..., 1])**2 +
+        (pos_z - keypoint[..., 2])**2
+    )  # (B, VR_kps, 20, 20, 18)
+
+    # Gaussian 계산
+    g = _gaussian(dis, 0.001, 1)  # (B, VR_kps, 20, 20, 18)
+
+    # Softmax 계산
+    heatmap = _softmax(g)  # (B, VR_kps, 20, 20, 18)
+
+    return heatmap
 
 def split_by_file(dataset, train_ratio=0.7, valid_ratio=0.2, test_ratio=0.1):
     train_indices = []
@@ -112,25 +152,7 @@ class SlidingWindowDataset(Dataset):
             # if "test" in data_dir:
             #     print(f"Data: {data_dir} - {num_windows} windows")
         return indices, mappings
-    
-    def _generate_heatmap(self, keypoint): # 기존 (50,21,3) -> (4,1,3) 사람, 1개의 kp, xyz
-        heatmap_size = [20, 20, 18]
-        
-        #50, 21 ,50, 50, 18 -> 4, 1, 50, 50
-        heatmap = np.zeros((keypoint.shape[0], keypoint.shape[1], *heatmap_size), dtype=np.float32)
-        
-        pos_y, pos_x, pos_z = np.meshgrid(
-            np.linspace(0., 1., heatmap_size[0]),
-            np.linspace(0., 1., heatmap_size[1]),
-            np.linspace(0., 1., heatmap_size[2]),
-        )
-        
-        for i in range(keypoint.shape[0]): # 기존 frame, 현재 사람 수
-            for k in range(keypoint.shape[1]): # 기존 21kp, 현재 1개의 kp -> 사실 k=0으로 세팅해도 무방
-                dis = np.sqrt((pos_x-keypoint[i, k, 0])**2 + (pos_y-keypoint[i, k, 1])**2 + (pos_z-keypoint[i, k, 2])**2)
-                g = self._gaussian(dis, 0.001, 1)
-                heatmap[i,k,:,:,:] = self._softmax(g)/0.25
-        return heatmap # (window_size ,19,20,20,18)
+
     
     def _load_data(self, file_path):
         # Check if the data is already in the buffer
@@ -229,3 +251,4 @@ def get_tactile_dataloaders(data_dir, config):
     )
     
     return (train_dataloader, valid_dataloader, test_dataloader), (train_dataset, valid_dataset, test_dataset), (train_mappings, valid_mappings, test_mappings)
+
