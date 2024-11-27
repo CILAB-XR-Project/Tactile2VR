@@ -10,6 +10,8 @@ from dataloader import get_tactile_dataloaders, generate_heatmap
 import const
 import torch
 
+from WifiSensor import WifiSensor, align_pressure
+
 HOST = "127.0.0.1"
 PORT = 12345
 
@@ -134,9 +136,29 @@ def main():
     # config.MODEL = "Tactile2PoseFeatureModel"
     config.MODEL = "Tactile2PoseVRHeatmap"
     # config.MODEL = "Tactile2PoseVRLinear"
+
     model_path = ".\\models\\best_model_heatmap_lowerbody_weighted.pth"
     model, softmax = load_model(config, model_path, device)
     
+    num_client = 2
+    sensor = WifiSensor(
+        host='192.168.0.2',  # Localhost
+        port=7000,  # Port to listen on (non-privileged ports are > 1023)
+        num_client=num_client,
+    )
+    sensor.start()
+
+    for _, sender_ID, _, ts, data_matrix in sensor.get_all():
+        if sender_ID == 1:
+            data_matrixL = data_matrix
+        elif sender_ID == 2:
+            data_matrixR = data_matrix
+        else:
+            raise RuntimeError
+    tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, Insole_ID)
+    #    save_queue.put((tactile_left, tactile_right, timestamp))
+    #  normalize(tactile_left, 0, 255, 2900, 3100).astype(np.uint8),    
+
     keypoint_data, test_data_iterator= get_next_test_data(test_data_iterator, test_dataloader)
     model_output_data = get_pose_aciton_data_from_dataset(config, keypoint_data, model, softmax, device)
     # start server
