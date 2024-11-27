@@ -35,7 +35,8 @@ def load_model(config, model_path, device="cuda"):
 
     return model, softmax
 
-def get_pose_aciton_data(config, data, model, softmax, device="cuda"):
+
+def get_pose_aciton_data_from_dataset(config, data, model, softmax, device="cuda"):
         
     input_tac_left, input_tac_right, input_kp, action_idx = data    
     
@@ -60,6 +61,41 @@ def get_pose_aciton_data(config, data, model, softmax, device="cuda"):
     action_class = action_idx[0].item()
     return {'keypoints': keypoints, 'action_class': action_class}
 
+def get_pose_aciton_data_from_realdata(config, tactile_data, vr_kps, model, softmax, device="cuda"):
+    input_tac_left, input_tac_right = tactile_data
+    
+    input_kp = torch.tensor(vr_kps).unsqueeze(0).to(device).float()
+    input_kp = normalize_keypoints(input_kp)
+    tactile_left = input_tac_left.to(device).float()
+    tactile_right = input_tac_right.to(device).float()
+    
+    if config.MODEL == "Tactile2PoseVRHeatmap":
+        vr_keypoint_heatmap = generate_heatmap(input_kp)
+        heatmap_pred, action_prd = model(tactile_left, tactile_right, vr_keypoint_heatmap)
+    
+    else:
+        heatmap_pred, action_prd = model(tactile_left, tactile_right, input_kp)
+    heatmap_pred = torch.clip(heatmap_pred, 0, None)
+    keypoint_out, _ = softmax(heatmap_pred)
+    keypoints = denormalize_keypoints(keypoint_out[0, const.UNITY_INDEXS, :]).detach().cpu().numpy().tolist()
+    
+    action_idx = torch.argmax(action_prd, dim=1)
+    
+    action_class = action_idx[0].item()
+    return {'keypoints': keypoints, 'action_class': action_class}
+
+
+                        
+def get_next_test_data(test_data_iterator, test_dataloader):
+    """테스트 데이터를 안전하게 반환하거나 반복자를 초기화"""
+    try:
+        return next(test_data_iterator), test_data_iterator
+    except StopIteration:
+        test_data_iterator = iter(test_dataloader)  # 반복자 초기화
+        return next(test_data_iterator) ,test_data_iterator
+    
+def get_tactile_data():
+    pass
 
 def denormalize_keypoints(normalized_keypoints):
     restored_keypoints = normalized_keypoints.clone()
@@ -70,6 +106,15 @@ def denormalize_keypoints(normalized_keypoints):
     restored_keypoints[:,1] *= -1
     return restored_keypoints
 
+
+def normalize_keypoints(keypoints):
+    normalized_keypoints = keypoints.clone()
+    normalized_keypoints[:,:2] /= 2.0
+    normalized_keypoints[:,:2] += 0.5
+    # x,y좌표 뒤집기
+    normalized_keypoints[:,0] *= -1
+    normalized_keypoints[:,1] *= -1
+    return normalized_keypoints
 
 def main():
     #get config
@@ -92,8 +137,8 @@ def main():
     model_path = ".\\models\\best_model_heatmap_lowerbody_weighted.pth"
     model, softmax = load_model(config, model_path, device)
     
-    data = next(test_data_iterator)
-    model_output_data = get_pose_aciton_data(config, data, model, softmax, device)
+    keypoint_data, test_data_iterator= get_next_test_data(test_data_iterator, test_dataloader)
+    model_output_data = get_pose_aciton_data_from_dataset(config, keypoint_data, model, softmax, device)
     # start server
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
@@ -102,24 +147,40 @@ def main():
         conn, addr = s.accept()
         with conn:
             print(f"{addr}가 연결되었습니다.")
+            buffer = ""
             while True:
-                data = conn.recv(4096)
+                data = conn.recv(4096).decode('utf-8')
                 if not data:
                     break
-                
-                
-                # unity_vr_data = json.loads(data.decode('utf-8'))
-                # print(f"Unity에서 받은 vr 좌표 데이터: {unity_vr_data}")
-                try:
-                    data = next(test_data_iterator)
-                except StopIteration:
-                    test_data_iterator = iter(test_dataloader)
-                    data = next(test_data_iterator)
-                model_output_data = get_pose_aciton_data(config, data, model, softmax, device)
 
-                conn.sendall(json.dumps(model_output_data).encode('utf-8'))
-                print(f"Unity에 보낼 model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['keypoints'][1]}")
+                # 받은 데이터를 버퍼에 추가
+                buffer += data
                 
+                
+                while "\n" in buffer:
+                    message, buffer = buffer.split("\n", 1)  # 첫 번째 메시지와 나머지 데이터 분리
+                    try:
+                        unity_vr_data = json.loads(message)  # JSON 파싱
+                        print(f"Unity에서 받은 VR 좌표 데이터: {unity_vr_data}")
+                        
+                    
+                        # tactile_data = get_tactile_data()
+                        #model_output_data = get_pose_aciton_data_from_realdata(config, tactile_data, unity_vr_data, model, softmax, device)
+                        
+                        # 테스트 데이터 준비
+                        keypoint_data, test_data_iterator = get_next_test_data(test_data_iterator, test_dataloader)
 
+                        # 모델 데이터 생성
+                        model_output_data = get_pose_aciton_data_from_dataset(config, keypoint_data, model, softmax, device)
+
+                        # Unity로 데이터 전송
+                        conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
+                        print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['keypoints'][1]}")
+                    except json.JSONDecodeError as e:
+                        print(f"JSON 디코드 에러: {e}")
+                    except Exception as e:
+                        print(f"예외 발생: {e}")
+
+    
 if __name__ == "__main__":
     main()
