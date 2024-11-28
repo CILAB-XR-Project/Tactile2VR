@@ -28,8 +28,7 @@ def plotMultiKeypoint(keypoints, limit=None):
         xs = data[:, 0]
         ys = data[:, 1]
         zs = -data[:, 2]
-        z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
-        zs -= z_offset  # z축 중앙으로 평행 이동
+        zs += 1  # z축 중앙으로 평행 이동
     
         for i in range(len(BODY_18_PAIRS)):
             index_1 = BODY_18_PAIRS[i][0]
@@ -76,8 +75,7 @@ def plotMultiKeypointVideo(keypoints, limit=None, name=None):
             xs = kp[:, 0]
             ys = kp[:, 1]
             zs = -kp[:, 2]
-            z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
-            zs -= z_offset  # z축 중앙으로 평행 이동
+            zs += 1  # z축 중앙으로 평행 이동
 
             for i, pair in enumerate(BODY_18_PAIRS):
                 index_1, index_2 = pair
@@ -156,7 +154,7 @@ def plot3Dheatmap(_data):
     ax.set_zlabel('z')
     ax.view_init(-149, 33)
 
-    for j in range(3):
+    for j in range(19):
         frame = data[j]
         x,y,z = np.where(frame>0)
         ax.scatter(x, y, z, c=frame[x,y,z]*255, cmap=colors[j])
@@ -225,15 +223,17 @@ def round_to_1(data, sig):
     return data
 
 
+
 def plot_action_confusion_matrix(class_history):
     max_sum = np.max(np.sum(class_history, axis=1))
     ACTIVITY_LIST = [
         "Squat",
-        "Warm-up",
+        "Stepper",
+        "Jump",
         "Walking",  # walking should be in front of other walking variants
-        "Walking-in-place",
-        "Side walking",
-        "Backward walking",
+        "InPlaceWalking",
+        "SideWalking",
+        "BackwardWalking",
         "Lunge",
     ]
     fig, ax = plt.subplots(dpi=300)
@@ -268,4 +268,5 @@ def plot_action_confusion_matrix(class_history):
     
     plt.close()
     return img
+
 
