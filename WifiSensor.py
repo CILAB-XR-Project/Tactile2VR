@@ -4,6 +4,7 @@ import cv2
 import time
 import multiprocessing as mp
 from multiprocessing import Manager
+from collections import deque
 
 def normalize(array, alpha, beta, minv, maxv):
     new_array = (array - minv) / (maxv - minv)
@@ -48,14 +49,18 @@ def parse_data(data):
     return matrix_index, sender_ID, data_matrix
 
 class WifiSensor:
-    def __init__(self, host, port, num_client):
+    def __init__(self, host, port, num_client, insole_ID, window_size=20):
         self.host = host
         self.port = port
         self.num_client = num_client
+        self.insole_ID = insole_ID
 
         self.fps = 0
         self.exit = mp.Event()
         self.queues = [Manager().Queue() for _ in range(self.num_client)]
+        self.left_tactile_window = deque(maxlen=window_size)
+        self.right_tactile_window = deque(maxlen=window_size)
+
 
     def close(self):
         self.exit.set()
@@ -68,6 +73,7 @@ class WifiSensor:
             re = self.get(i)
             result.append(re)
         return result
+    
     def get(self, idx):
         result = None
         if self.queues[idx].empty():
@@ -76,6 +82,29 @@ class WifiSensor:
             while not self.queues[idx].empty():
                 result = self.queues[idx].get()
         return result
+    
+    def update_window(self):
+        data_matrixL, data_matrixR = None, None
+        while not self.exit.is_set():
+            for i in range(self.num_client):
+                try:
+                    matrix_index, sender_ID, fps, ts, data_matrix = self.get(i)
+                    if sender_ID == 1:
+                        data_matrixL = data_matrix
+                     
+                    elif sender_ID == 2:
+                        data_matrixR = data_matrix
+                        self.right_tactile_window.append(data_matrix)
+                    else:
+                        raise RuntimeError
+                    tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.insole_ID)
+                    self.left_tactile_window.append(tactile_left)
+                    self.right_tactile_window.append(tactile_right)
+                except Exception as e:
+                    pass
+    
+    def get_window_data(self):
+        return list(self.left_tactile_window), list(self.right_tactile_window)
 
     def start(self):
         # Create a TCP/IP socket
@@ -100,7 +129,12 @@ class WifiSensor:
 
             server_socket.setblocking(False)
             print(f"{len(processes)} clients are connected.")
-            self.processes = processes
+
+        
+        dequeue_update_p = mp.Process(target=self.update_window)
+        dequeue_update_p.start()
+        processes.append(dequeue_update_p)
+        self.processes = processes
 
     def receive_data(self, conn, queue):
         data_length = 2051

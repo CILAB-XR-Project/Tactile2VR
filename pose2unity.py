@@ -16,6 +16,9 @@ HOST = "127.0.0.1"
 PORT = 12345
 
 
+
+
+
 def load_model(config, model_path, device="cuda"):
     model_dict ={
         "Tactile2PoseFeatureModel": Tactile2PoseFeatureModel,
@@ -87,13 +90,11 @@ def get_pose_aciton_data_from_realdata(config, tactile_data, vr_kps, model, soft
     return {'keypoints': keypoints, 'action_class': action_class}
 
 
-                        
 def get_next_test_data(test_data_iterator, test_dataloader):
-    """테스트 데이터를 안전하게 반환하거나 반복자를 초기화"""
     try:
         return next(test_data_iterator), test_data_iterator
     except StopIteration:
-        test_data_iterator = iter(test_dataloader)  # 반복자 초기화
+        test_data_iterator = iter(test_dataloader) 
         return next(test_data_iterator) ,test_data_iterator
     
 def get_tactile_data():
@@ -130,8 +131,7 @@ def main():
     test_data_iterator = iter(test_dataloader)
     
     #load model
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"device: {device}")
+   
     
     # config.MODEL = "Tactile2PoseFeatureModel"
     config.MODEL = "Tactile2PoseVRHeatmap"
