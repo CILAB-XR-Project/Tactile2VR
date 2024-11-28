@@ -4,14 +4,22 @@ import cv2
 import time
 import multiprocessing as mp
 from multiprocessing import Manager
-from collections import deque
 
-def normalize(array, alpha, beta, minv, maxv):
-    new_array = (array - minv) / (maxv - minv)
-    new_array = np.clip(new_array, 0, 1)
-    new_array *= beta - alpha
-    new_array += alpha
-    return new_array
+
+def minmax_normalization(img, minv=None, maxv=None):
+    # Min-Max Normalization to scale to 0-255
+    min_val = np.min(img)
+    max_val = np.max(img)
+
+    if minv != None: min_val = minv
+    if maxv != None: max_val = maxv
+
+    if max_val != min_val:  # Avoid division by zero
+        normalized_matrix = (img - min_val) / (max_val - min_val)
+    else:
+        normalized_matrix = np.zeros_like(img)  # All values are the same
+    normalized_matrix = np.clip(normalized_matrix, 0, 1)
+    return normalized_matrix
 
 def align_pressure(tactile_left, tactile_right, Insole_ID):
     insole_shape = [22, 32]
@@ -32,6 +40,8 @@ def align_pressure(tactile_left, tactile_right, Insole_ID):
         tactile_right = np.flip(tactile_right, axis=1)
         tactile_right = tactile_right[:insole_shape[1], -insole_shape[0]:]
 
+    tactile_left = tactile_left.astype(np.float32)
+    tactile_right = tactile_right.astype(np.float32)
     return tactile_left, tactile_right
 
 def parse_data(data):
@@ -49,7 +59,7 @@ def parse_data(data):
     return matrix_index, sender_ID, data_matrix
 
 class WifiSensor:
-    def __init__(self, host, port, num_client, insole_ID, window_size=20):
+    def __init__(self, host, port, num_client, insole_ID):
         self.host = host
         self.port = port
         self.num_client = num_client
@@ -58,8 +68,6 @@ class WifiSensor:
         self.fps = 0
         self.exit = mp.Event()
         self.queues = [Manager().Queue() for _ in range(self.num_client)]
-        self.left_tactile_window = deque(maxlen=window_size)
-        self.right_tactile_window = deque(maxlen=window_size)
 
 
     def close(self):
@@ -83,29 +91,6 @@ class WifiSensor:
                 result = self.queues[idx].get()
         return result
     
-    def update_window(self):
-        data_matrixL, data_matrixR = None, None
-        while not self.exit.is_set():
-            for i in range(self.num_client):
-                try:
-                    matrix_index, sender_ID, fps, ts, data_matrix = self.get(i)
-                    if sender_ID == 1:
-                        data_matrixL = data_matrix
-                     
-                    elif sender_ID == 2:
-                        data_matrixR = data_matrix
-                        self.right_tactile_window.append(data_matrix)
-                    else:
-                        raise RuntimeError
-                    tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.insole_ID)
-                    self.left_tactile_window.append(tactile_left)
-                    self.right_tactile_window.append(tactile_right)
-                except Exception as e:
-                    pass
-    
-    def get_window_data(self):
-        return list(self.left_tactile_window), list(self.right_tactile_window)
-
     def start(self):
         # Create a TCP/IP socket
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -129,13 +114,8 @@ class WifiSensor:
 
             server_socket.setblocking(False)
             print(f"{len(processes)} clients are connected.")
-
-        
-        dequeue_update_p = mp.Process(target=self.update_window)
-        dequeue_update_p.start()
-        processes.append(dequeue_update_p)
-        self.processes = processes
-
+            self.processes = processes
+            
     def receive_data(self, conn, queue):
         data_length = 2051
 
