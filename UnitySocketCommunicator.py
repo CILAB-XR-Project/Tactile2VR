@@ -9,7 +9,7 @@ import cv2
 
 from config import Tactile2PoseConfig
 from const import UNITY_INDEXS, VR_INDEXS
-from model import SpatialSoftmax3D, Tactile2PoseVRHeatmap
+from model import SpatialSoftmax3D, Tactile2PoseVRHeatmap, Tactile2PoseAction
 from dataloader import get_tactile_dataloaders, generate_heatmap
 from WifiSensor import WifiSensor, align_pressure, minmax_normalization
 
@@ -83,7 +83,7 @@ class UnityCommunicator:
         normalized_keypoints[:,:2] += 0.5
         return normalized_keypoints
     
-    def model_inference(self, tactile_left, tactile_right, vr_kps) -> dict:
+    def model_inference_vr_kps(self, tactile_left, tactile_right, vr_kps) -> dict:
         vr_kps_heatmap = generate_heatmap(vr_kps)
         heatmap_pred, action_prd = self.model(tactile_left, tactile_right, vr_kps_heatmap)
 
@@ -95,7 +95,19 @@ class UnityCommunicator:
         
         action_class = action_idx[0].item()
         return {'keypoints': keypoints, 'action_class': action_class}
+    
+    def model_inference_tactile(self, tactile_left, tactile_right) -> dict:
 
+        heatmap_pred, action_prd = self.model(tactile_left, tactile_right)
+
+        heatmap_pred = torch.clip(heatmap_pred, 0, None)
+        keypoint_out, _ = self.softmax(heatmap_pred)
+        keypoints = self._denormalize_keypoints(keypoint_out[0, UNITY_INDEXS, :]).detach().cpu().numpy().tolist()
+    
+        action_idx = torch.argmax(action_prd, dim=1)
+        
+        action_class = action_idx[0].item()
+        return {'keypoints': keypoints, 'action_class': action_class}
         
     def run_with_testdata(self) -> None:
         def _load_test_data():
@@ -122,7 +134,7 @@ class UnityCommunicator:
         
         data_loader, data_iterator = _load_test_data()
         (tactile_left, tactile_right, keypoint_vr), data_iterator = _get_next_data(data_iterator, data_loader)
-        self.model_inference(tactile_left, tactile_right, keypoint_vr)
+        self.model_inference_vr_kps(tactile_left, tactile_right, keypoint_vr)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
             unity_socket.bind((self.host, self.port))
             unity_socket.listen(1)
@@ -151,7 +163,7 @@ class UnityCommunicator:
 
                         (tactile_left, tactile_right, keypoint_vr), data_iterator = _get_next_data(data_iterator, data_loader)
                               
-                        model_output_data = self.model_inference(tactile_left, tactile_right, keypoint_data)
+                        model_output_data = self.model_inference_vr_kps(tactile_left, tactile_right, keypoint_data)
                         print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['action_class']}")
                         conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
                         
@@ -247,7 +259,53 @@ class UnityCommunicator:
                     print(f"FPS: {fps:.2f}")
                     frame_count = 0
                     start_time = time.time()
+                    
+    def run_with_testdata_only_tactile(self) -> None:
+        def _load_test_data():
+            config = Tactile2PoseConfig()
+            config.BATCH_SIZE = 1
     
+            data_dir = "D:\\Desktop\\dataset"
+            loaders, _, _ = get_tactile_dataloaders(data_dir, config)
+            _,_, test_dataloader = loaders
+            test_data_iterator = iter(test_dataloader)
+            return test_dataloader, test_data_iterator
+        def _get_next_data(test_data_iterator, test_dataloader):
+            try:
+                data = next(test_data_iterator)
+            except StopIteration:
+                test_data_iterator = iter(test_dataloader) 
+                data = next(test_data_iterator)
+                
+            tactile_left, tactile_right, _, _ = data
+            tactile_left = tactile_left.to(self.device).float()
+            tactile_right = tactile_right.to(self.device).float()
+            return (tactile_left, tactile_right), test_data_iterator
+        
+        data_loader, data_iterator = _load_test_data()
+        (tactile_left, tactile_right), data_iterator = _get_next_data(data_iterator, data_loader)
+        self.model_inference_tactile(tactile_left, tactile_right)
+        
+        # Start server
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
+            unity_socket.bind((self.host, self.port))
+            unity_socket.listen(1)
+            print(f"Python 서버가 {self.host}:{self.port}에서 대기 중 입니다.")
+            conn, addr = unity_socket.accept()
+            print(f"{addr}, Unity가 연결되었습니다.")
+            
+            while True:
+                try:
+                    (tactile_left, tactile_right), data_iterator = _get_next_data(data_iterator, data_loader)
+                            
+                    model_output_data = self.model_inference_tactile(tactile_left, tactile_right)
+                    print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['action_class']}")
+                    conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
+                    
+                except json.JSONDecodeError as e:
+                    print(f"JSON 디코드 에러: {e}")
+                except Exception as e:
+                    print(f"예외 발생: {e}")
     
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -255,8 +313,10 @@ if __name__ == "__main__":
     
     # Load model
     config = Tactile2PoseConfig()
-    model = Tactile2PoseVRHeatmap(config)
-    model_path = ".\\models\\best_model_action.pth"
+    # model = Tactile2PoseVRHeatmap(config)
+    model = Tactile2PoseAction(config)
+    
+    model_path = ".\\models\\best_model_only_tactile.pth"
     try:
         model.load_state_dict(torch.load(model_path).state_dict())
     except:

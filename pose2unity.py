@@ -16,9 +16,6 @@ HOST = "127.0.0.1"
 PORT = 12345
 
 
-
-
-
 def load_model(config, model_path, device="cuda"):
     model_dict ={
         "Tactile2PoseFeatureModel": Tactile2PoseFeatureModel,
