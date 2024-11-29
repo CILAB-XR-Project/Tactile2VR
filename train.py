@@ -16,7 +16,7 @@ from model import Tactile2PoseFeatureModel, Tactile2PoseVRHeatmap, Tactile2PoseA
 from utils import DualOutput
 from dataloader import get_tactile_dataloaders, generate_heatmap
 from visualize import plotMultiKeypoint, plotTactile, plot_action_confusion_matrix
-from const import VR_INDEXS, SCALED_WEIGHT_INDEX
+from const import VR_INDEXS, SCALED_WEIGHT_INDEX, LOWER_BODY_INDEXS
 
 def calc_keypoint_loss(keypoint_GT, keypoint_pred, eud):
     # scaling_factor = eud
@@ -68,7 +68,10 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
 
         tactile_left = input_tac_left.to(device).float()
         tactile_right = input_tac_right.to(device).float()
-        keypoint_label =  input_kp[:,-1,:,:].to(device).float()
+        if config.ONLY_LOWER_BODY:
+            keypoint_label =  input_kp[:,-1,LOWER_BODY_INDEXS, :].to(device).float()
+        else:
+            keypoint_label =  input_kp[:,-1,:,:].to(device).float()
         action_idx = action_idx.cuda()
 
         # if config.MODEL == "Tactile2PoseVRHeatmap":
@@ -85,8 +88,12 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         heatmap_pred = torch.clip(heatmap_pred, 0, None)
         keypoint_out, _ = softmax(heatmap_pred)
         eud, _ = get_keypoint_spatial_dis(keypoint_out.detach(), keypoint_label.detach())
-        scaled_keypoint_loss, keypoint_loss = calc_keypoint_loss(keypoint_label, keypoint_out, eud)
-        # keypoint_loss = mse_loss(keypoint_out, keypoint_label) * 10000
+        if config.ONLY_LOWER_BODY:
+            keypoint_loss = mse_loss(keypoint_out, keypoint_label) * 10000
+            scaled_keypoint_loss = keypoint_loss
+        else: 
+            scaled_keypoint_loss, keypoint_loss = calc_keypoint_loss(keypoint_label, keypoint_out, eud)
+        
         action_loss = torch.nn.functional.cross_entropy(action_pred, action_idx)
         total_loss = scaled_keypoint_loss + action_loss
             
@@ -112,6 +119,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
 
         pbar.set_description(
             f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f} L2={torch.mean(eud).item():.2f}cm  Acc={accuracy:.2f}")
+
         
     if visualize:
         keypoint_np = keypoint_label.detach().cpu().numpy()
@@ -121,8 +129,8 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
 
         k = random.randint(0, keypoint_np.shape[0]-1)
 
-        img1 = plotMultiKeypoint([keypoint_np[k]], limit=[(0, 1), (0, 1), (0, 1)])
-        img2 = plotMultiKeypoint([keypoint_pred_np[k]], limit=[(0, 1), (0, 1), (0, 1)])
+        img1 = plotMultiKeypoint([keypoint_np[k]], config.ONLY_LOWER_BODY, limit=[(0, 1), (0, 1), (0, 1)])
+        img2 = plotMultiKeypoint([keypoint_pred_np[k]], config.ONLY_LOWER_BODY, limit=[(0, 1), (0, 1), (0, 1)])
         
 
         if config.PREDICT_MIDDLE:
@@ -141,7 +149,6 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         writer.add_image(f'{name}/Images/TactileRight', img4, epoch, dataformats='HWC')
         writer.add_image(f'{name}/Images/Action_Confusion_matrix', img5, epoch, dataformats='HWC')
      
-        
     for key in history.keys():
         history[key] = np.mean(history[key])
     
@@ -149,18 +156,11 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
 
 
 if __name__ == "__main__":
-    # load config
-    model_dict ={
-        "Tactile2PoseFeatureModel": Tactile2PoseFeatureModel,
-        "Tactile2PoseVRHeatmap": Tactile2PoseVRHeatmap,
-        # "Tactile2PoseVRLinear": Tactile2PoseVRLinear
-    }
-    
     config = Tactile2PoseConfig()
-    # config.MODEL = "Tactile2PoseFeatureModel"
-    config.MODEL = "Tactile2PoseAction"
-    # config.MODEL = "Tactile2PoseVRLinear"
-    
+    config.ONLY_LOWER_BODY = True
+    if config.ONLY_LOWER_BODY:
+        config.KP_NUM = 6
+        
     # create log directory
     log_name = input("Enter Run name: ")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
@@ -171,7 +171,11 @@ if __name__ == "__main__":
     
     # model = model_dict[config.MODEL](config)
     model = Tactile2PoseAction(config)
-    softmax = SpatialSoftmax3D(20,20,18,19)
+    
+    if config.ONLY_LOWER_BODY:
+        softmax = SpatialSoftmax3D(20,20,18,6)
+    else:
+        softmax = SpatialSoftmax3D(20,20,25,19)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -189,7 +193,7 @@ if __name__ == "__main__":
     print("==========================")
     
     #load data
-    data_dir = "/app/raid/isaac/InsoleData/dataset/"
+    data_dir = "/app/raid/isaac/InsoleData/"
     loaders, datasets, mappings = get_tactile_dataloaders(data_dir, config)
     train_dataloader, valid_dataloader, test_dataloader = loaders
     

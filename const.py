@@ -64,6 +64,15 @@ VR_INDEXS = [
     KEYPOINTS_NAMES_TO_INDEX["right_wrist"]
 ]
 SCALED_WEIGHT_INDEX = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+                #   0   1  2  3   4   5
+LOWER_BODY_INDEXS = [7, 8, 9, 10, 11, 12]
+LOWER_BODY_PAIRS = [
+    (0, 1),
+    (0, 2),
+    (1, 3),
+    (2, 4),
+    (3, 5)
+]
 
 HEAD_INDEXS = [0]
 SHOULDER_INDEXS = [1, 2]

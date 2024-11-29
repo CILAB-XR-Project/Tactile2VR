@@ -97,8 +97,8 @@ class Tactile2PoseConfig(BaseConfig):
     ACTION_LIST = ACTIVITY_LIST
     
     CACHE_SIZE = 125
-    EPOCHS = 100
+    EPOCHS = 50
     BATCH_SIZE = 64
-
-    VR_KP_LEN = len(VR_INDEXS)
+    ONLY_LOWER_BODY = False
+    KP_NUM = 19
 

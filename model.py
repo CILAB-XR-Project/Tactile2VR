@@ -389,6 +389,7 @@ class Tactile2PoseAction(nn.Module):
 
         conv_0_channel = config.WINDOW_SIZE
         self.action_list= config.ACTION_LIST
+        self.kps_num = config.KP_NUM
 
         self.conv_0 = nn.Sequential(
             nn.Conv2d(conv_0_channel, 32, kernel_size=(3, 3), padding=1),
@@ -426,9 +427,9 @@ class Tactile2PoseAction(nn.Module):
             nn.ConvTranspose3d(128, 64, kernel_size=(2, 2, 2), stride=3),
             nn.LeakyReLU(),
             nn.BatchNorm3d(64))
-
+        
         self.conv3D_2 = nn.Sequential(
-            nn.Conv3d(64, 19, kernel_size=(3, 3, 5), padding=1),
+            nn.Conv3d(64, self.kps_num, kernel_size=(3, 3, 5), padding=1),
             nn.LeakyReLU())
         
         self.action_max_pool_1 = nn.MaxPool2d(kernel_size=2)
