@@ -147,6 +147,25 @@ class Tactile2PoseVRHeatmap(nn.Module):
         self.conv3D_2 = nn.Sequential(
             nn.Conv3d(64, 19, kernel_size=(3, 3, 5), padding=1),
             nn.LeakyReLU())
+        
+        self.action_max_pool_1 = nn.MaxPool2d(kernel_size=2)
+        
+        self.action_mlp_0 = nn.Sequential(
+            nn.Linear(5120, 1024),
+            nn.LeakyReLU(),
+            nn.LayerNorm(1024))
+        
+        self.action_mlp_1 = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(),
+            nn.LayerNorm(512))
+        
+        self.action_mlp_2 = nn.Sequential(
+            nn.Linear(512, 128),
+            nn.LeakyReLU(),
+            nn.LayerNorm(128))    
+        
+        self.action_mlp_final = nn.Linear(128, len(self.action_list))
 
         self.dummy_param = nn.Parameter(torch.empty(0))
 
@@ -156,6 +175,13 @@ class Tactile2PoseVRHeatmap(nn.Module):
         feature = self.conv_1(feature)
         feature = self.conv_2(feature)
         feature = self.conv_3(feature)
+         
+        action_output = self.action_max_pool_1(feature) 
+        action_output = action_output.view(action_output.shape[0], -1)
+        action_output = self.action_mlp_0(action_output)
+        action_output = self.action_mlp_1(action_output)
+        action_output = self.action_mlp_2(action_output)
+        action_output = self.action_mlp_final(action_output)
         
         feature = feature.unsqueeze(-1)
         feature = feature.repeat(1, 1, 1, 1, 9)
@@ -170,13 +196,16 @@ class Tactile2PoseVRHeatmap(nn.Module):
         feature_vr = self.conv3D_vr_heatmap_1(feature_vr)
         feature_vr = self.conv3D_vr_heatmap_2(feature_vr)
 
-        output = torch.cat((feature, feature_vr, layer), axis=1)
+        heatmap_output = torch.cat((feature, feature_vr, layer), axis=1)
 
-        output = self.conv3D_0(output)
-        output = self.conv3D_1(output)
-        output = self.conv3DTrans_0(output)
-        output = self.conv3D_2(output)
-        return output
+        heatmap_output = self.conv3D_0(heatmap_output)
+        heatmap_output = self.conv3D_1(heatmap_output)
+        heatmap_output = self.conv3DTrans_0(heatmap_output)
+        heatmap_output = self.conv3D_2(heatmap_output)
+        
+
+        return heatmap_output, action_output
+
 
 class Tactile2PoseVRLinear(nn.Module):
     def __init__(self, config):
@@ -291,7 +320,169 @@ class Tactile2PoseVRLinear(nn.Module):
         return output
 
 
+class Insole2Action_conv3d(Tactile2PoseVRHeatmap):
+    def __init__(self, window_size, pretrained_path=None, action_list=None):
+        super(Insole2Action_conv3d, self).__init__(window_size)
+        if pretrained_path is not None:
+            self._load_pretrained_model(pretrained_path)
+            self._freeze_pretrain_model()
 
+        
+        self.action_max_pool_1 = nn.MaxPool2d(kernel_size=2)
+        
+        self.action_mlp_0 = nn.Sequential(
+            nn.Linear(3840, 512),
+            nn.LeakyReLU(),
+            nn.LayerNorm(512))
+        
+        self.action_mlp_1 = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.LeakyReLU(),
+            nn.LayerNorm(256))
+        
+        self.action_mlp_2 = nn.Sequential(
+            nn.Linear(256, 128),
+            nn.LeakyReLU(),
+            nn.LayerNorm(128))
+        
+        self.action_mlp_final = nn.Linear(128, len(action_list))
+        
+    def _load_pretrained_model(self, path):
+        try:
+            self.load_state_dict(torch.load(path).state_dict())
+            print(f"Loaded pretrained model from {path}")
+        except Exception as e:
+            print(f"Failed to load pretrained model from {path}: {e}")
+            
+    def _freeze_pretrain_model(self):
+        for name, param in self.named_parameters():
+            if "action" not in name:
+                param.requires_grad = False
+            
+    def forward(self, tactile_left, tactile_right):
+        feature_left = self.left_conv_0(tactile_left)
+        feature_left = self.left_conv_1(feature_left)
+        feature_left = self.left_conv_2(feature_left)
+        feature_left = self.left_conv_3(feature_left) #8,256,7,5
+
+        feature_right = self.right_conv_0(tactile_right)
+        feature_right = self.right_conv_1(feature_right)
+        feature_right = self.right_conv_2(feature_right)
+        feature_right = self.right_conv_3(feature_right) #8,256,7,5
+        
+        feature = torch.cat((feature_left, feature_right), dim=-1) #8,256,7,10
+
+        output = self.action_max_pool_1(feature) #8, 256, 3, 5
+
+        output = output.view(output.shape[0], -1)
+        output = self.action_mlp_0(output)
+        output = self.action_mlp_1(output)
+        output = self.action_mlp_2(output)
+        output = self.action_mlp_final(output)
+        return output
+
+
+class Tactile2PoseAction(nn.Module):
+    def __init__(self, config):
+        super(Tactile2PoseAction, self).__init__()
+
+        conv_0_channel = config.WINDOW_SIZE
+        self.action_list= config.ACTION_LIST
+        self.kps_num = config.KP_NUM
+
+        self.conv_0 = nn.Sequential(
+            nn.Conv2d(conv_0_channel, 32, kernel_size=(3, 3), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(32))
+
+        self.conv_1 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=(3, 3), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(64),
+            nn.MaxPool2d(kernel_size=2))
+
+        self.conv_2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=(3, 3), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(128))
+
+        self.conv_3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=(3, 3), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm2d(256),
+            nn.MaxPool2d(kernel_size=2))
+
+        self.conv3D_0 = nn.Sequential(
+            nn.Conv3d(257, 257, kernel_size=(3, 5, 5), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm3d(257))
+
+        self.conv3D_1 = nn.Sequential(
+            nn.Conv3d(257, 128, kernel_size=(4, 5, 3), padding=1),
+            nn.LeakyReLU(),
+            nn.BatchNorm3d(128))
+
+        self.conv3DTrans_0 = nn.Sequential(
+            nn.ConvTranspose3d(128, 64, kernel_size=(2, 2, 2), stride=3),
+            nn.LeakyReLU(),
+            nn.BatchNorm3d(64))
+        
+        self.conv3D_2 = nn.Sequential(
+            nn.Conv3d(64, self.kps_num, kernel_size=(3, 3, 5), padding=1),
+            nn.LeakyReLU())
+        
+        self.action_max_pool_1 = nn.MaxPool2d(kernel_size=2)
+        
+        self.action_mlp_0 = nn.Sequential(
+            nn.Linear(5120, 1024),
+            nn.LeakyReLU(),
+            nn.LayerNorm(1024))
+        
+        self.action_mlp_1 = nn.Sequential(
+            nn.Linear(1024, 512),
+            nn.LeakyReLU(),
+            nn.LayerNorm(512))
+        
+        self.action_mlp_2 = nn.Sequential(
+            nn.Linear(512, 128),
+            nn.LeakyReLU(),
+            nn.LayerNorm(128))    
+        
+        self.action_mlp_final = nn.Linear(128, len(self.action_list))
+
+        self.dummy_param = nn.Parameter(torch.empty(0))
+
+    def forward(self, tactile_left, tactile_right):
+        tactile = torch.cat((tactile_left, tactile_right), dim=-1)
+        feature = self.conv_0(tactile)
+        feature = self.conv_1(feature)
+        feature = self.conv_2(feature)
+        feature = self.conv_3(feature)
+         
+        action_output = self.action_max_pool_1(feature) 
+        action_output = action_output.view(action_output.shape[0], -1)
+        action_output = self.action_mlp_0(action_output)
+        action_output = self.action_mlp_1(action_output)
+        action_output = self.action_mlp_2(action_output)
+        action_output = self.action_mlp_final(action_output)
+        
+        feature = feature.unsqueeze(-1)
+        feature = feature.repeat(1, 1, 1, 1, 9)
+        
+        layer = torch.zeros(feature.shape[0], 1, feature.shape[2], feature.shape[3], feature.shape[4])
+        layer = layer.to(self.dummy_param.device)
+        for i in range(layer.shape[4]):
+            layer[:, :, :, :, i] = i
+        layer = layer / (layer.shape[4] - 1)
+
+        heatmap_output = torch.cat((feature, layer), axis=1)
+
+        heatmap_output = self.conv3D_0(heatmap_output)
+        heatmap_output = self.conv3D_1(heatmap_output)
+        heatmap_output = self.conv3DTrans_0(heatmap_output)
+        heatmap_output = self.conv3D_2(heatmap_output)
+        
+        return heatmap_output, action_output
 
 if __name__ == "__main__":
     config = Tactile2PoseConfig

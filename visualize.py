@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
-from const import BODY_18_PAIRS, BODY_25_color, ACTIVITY_LIST
+from const import BODY_18_PAIRS, BODY_25_color, LOWER_BODY_PAIRS
+
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -7,7 +8,14 @@ from tqdm import tqdm
 import seaborn as sns
 from matplotlib.patches import Rectangle
 
-def plotMultiKeypoint(keypoints, limit=None):
+def plotMultiKeypoint(keypoints, is_lower_body, limit=None):
+    if is_lower_body:
+        BODY_PAIRS = LOWER_BODY_PAIRS
+        kps_num = 6
+    else:
+        BODY_PAIRS = BODY_18_PAIRS
+        kps_num = 19
+
     fig = plt.figure()
 
     ax = fig.add_subplot(111, projection='3d')
@@ -28,19 +36,20 @@ def plotMultiKeypoint(keypoints, limit=None):
         xs = data[:, 0]
         ys = data[:, 1]
         zs = -data[:, 2]
-        z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
-        zs -= z_offset  # z축 중앙으로 평행 이동
+        zs += 1  # z축 중앙으로 평행 이동
     
-        for i in range(len(BODY_18_PAIRS)):
-            index_1 = BODY_18_PAIRS[i][0]
-            index_2 = BODY_18_PAIRS[i][1]
+        for i in range(len(BODY_PAIRS)):
+            index_1 = BODY_PAIRS[i][0]
+            index_2 = BODY_PAIRS[i][1]
+
 
             xs_line = [xs[index_1], xs[index_2]]
             ys_line = [ys[index_1], ys[index_2]]
             zs_line = [zs[index_1], zs[index_2]]
             ax.plot3D(xs_line, ys_line, zs_line, color=BODY_25_color[i] / 255.0)
 
-        ax.scatter(xs, ys, zs, s=20, c=BODY_25_color[:19] / 255.0)
+        ax.scatter(xs, ys, zs, s=20, c=BODY_25_color[:kps_num] / 255.0)
+
 
     fig.canvas.draw()
     # plt.show()
@@ -76,8 +85,7 @@ def plotMultiKeypointVideo(keypoints, limit=None, name=None):
             xs = kp[:, 0]
             ys = kp[:, 1]
             zs = -kp[:, 2]
-            z_offset = (zs.max() + zs.min())  # z축 중앙값 계산
-            zs -= z_offset  # z축 중앙으로 평행 이동
+            zs += 1  # z축 중앙으로 평행 이동
 
             for i, pair in enumerate(BODY_18_PAIRS):
                 index_1, index_2 = pair
@@ -156,7 +164,7 @@ def plot3Dheatmap(_data):
     ax.set_zlabel('z')
     ax.view_init(-149, 33)
 
-    for j in range(3):
+    for j in range(19):
         frame = data[j]
         x,y,z = np.where(frame>0)
         ax.scatter(x, y, z, c=frame[x,y,z]*255, cmap=colors[j])
@@ -223,17 +231,17 @@ def round_to_1(data, sig):
     data[data <= 1e-2] = 0
 
     return data
-
-
+  
 def plot_action_confusion_matrix(class_history):
     max_sum = np.max(np.sum(class_history, axis=1))
     ACTIVITY_LIST = [
         "Squat",
-        "Warm-up",
+        "Stepper",
+        "Jump",
         "Walking",  # walking should be in front of other walking variants
-        "Walking-in-place",
-        "Side walking",
-        "Backward walking",
+        "InPlaceWalking",
+        "SideWalking",
+        "BackwardWalking",
         "Lunge",
     ]
     fig, ax = plt.subplots(dpi=300)
@@ -268,4 +276,3 @@ def plot_action_confusion_matrix(class_history):
     
     plt.close()
     return img
-
