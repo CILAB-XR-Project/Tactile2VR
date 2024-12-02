@@ -102,3 +102,4 @@ class Tactile2PoseConfig(BaseConfig):
     ONLY_LOWER_BODY = False
     KP_NUM = 19
 
+

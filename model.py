@@ -206,6 +206,7 @@ class Tactile2PoseVRHeatmap(nn.Module):
 
         return heatmap_output, action_output
 
+
 class Tactile2PoseVRLinear(nn.Module):
     def __init__(self, config):
         super(Tactile2PoseVRLinear, self).__init__()
@@ -317,8 +318,6 @@ class Tactile2PoseVRLinear(nn.Module):
         output = self.conv3DTrans_0(output)
         output = self.conv3D_2(output)
         return output
-
-
 
 
 class Insole2Action_conv3d(Tactile2PoseVRHeatmap):
@@ -484,7 +483,6 @@ class Tactile2PoseAction(nn.Module):
         heatmap_output = self.conv3D_2(heatmap_output)
         
         return heatmap_output, action_output
-
 
 if __name__ == "__main__":
     config = Tactile2PoseConfig

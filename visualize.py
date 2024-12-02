@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 from const import BODY_18_PAIRS, BODY_25_color, LOWER_BODY_PAIRS
+
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
@@ -14,6 +15,7 @@ def plotMultiKeypoint(keypoints, is_lower_body, limit=None):
     else:
         BODY_PAIRS = BODY_18_PAIRS
         kps_num = 19
+
     fig = plt.figure()
 
     ax = fig.add_subplot(111, projection='3d')
@@ -40,12 +42,14 @@ def plotMultiKeypoint(keypoints, is_lower_body, limit=None):
             index_1 = BODY_PAIRS[i][0]
             index_2 = BODY_PAIRS[i][1]
 
+
             xs_line = [xs[index_1], xs[index_2]]
             ys_line = [ys[index_1], ys[index_2]]
             zs_line = [zs[index_1], zs[index_2]]
             ax.plot3D(xs_line, ys_line, zs_line, color=BODY_25_color[i] / 255.0)
 
         ax.scatter(xs, ys, zs, s=20, c=BODY_25_color[:kps_num] / 255.0)
+
 
     fig.canvas.draw()
     # plt.show()
@@ -227,9 +231,7 @@ def round_to_1(data, sig):
     data[data <= 1e-2] = 0
 
     return data
-
-
-
+  
 def plot_action_confusion_matrix(class_history):
     max_sum = np.max(np.sum(class_history, axis=1))
     ACTIVITY_LIST = [
@@ -274,5 +276,3 @@ def plot_action_confusion_matrix(class_history):
     
     plt.close()
     return img
-
-

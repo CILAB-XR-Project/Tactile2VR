@@ -37,8 +37,8 @@ def load_model(config, model_path, device="cuda"):
 
     return model, softmax
 
-
 def get_pose_aciton_data_from_dataset(config, data, model, softmax, device="cuda"):
+
         
     input_tac_left, input_tac_right, input_kp, action_idx = data    
     
@@ -126,9 +126,8 @@ def main():
     loaders, datasets, mappings = get_tactile_dataloaders(data_dir, config)
     train_dataloader, valid_dataloader, test_dataloader = loaders
     test_data_iterator = iter(test_dataloader)
+
     
-    #load model
-   
     
     # config.MODEL = "Tactile2PoseFeatureModel"
     config.MODEL = "Tactile2PoseVRHeatmap"
@@ -158,6 +157,7 @@ def main():
 
     keypoint_data, test_data_iterator= get_next_test_data(test_data_iterator, test_dataloader)
     model_output_data = get_pose_aciton_data_from_dataset(config, keypoint_data, model, softmax, device)
+
     # start server
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((HOST, PORT))
@@ -200,6 +200,5 @@ def main():
                     except Exception as e:
                         print(f"예외 발생: {e}")
 
-    
 if __name__ == "__main__":
     main()

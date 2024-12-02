@@ -25,6 +25,7 @@ def calc_keypoint_loss(keypoint_GT, keypoint_pred, eud):
     
     scaling_factor = torch.ones(keypoint_len).to(keypoint_GT.device)
     scaling_factor[SCALED_WEIGHT_INDEX] = 5.0
+
     
     mse_losses = torch.mean((keypoint_GT - keypoint_pred) ** 2, axis=-1)
     scaled_mse_losses = torch.mean(mse_losses * scaling_factor) * 10000
@@ -51,6 +52,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         "action_loss" : [],
         "total_loss": [],
         "action_accuracy": [],
+
         "cm_L2_keypoint": [],
     }
             
@@ -97,6 +99,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         action_loss = torch.nn.functional.cross_entropy(action_pred, action_idx)
         total_loss = scaled_keypoint_loss + action_loss
             
+
         if not test_mode:
             optimizer.zero_grad()
             total_loss.backward()
@@ -120,6 +123,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         pbar.set_description(
             f"[{name}] Epoch={epoch} Iter={i} Loss={total_loss.item():.2f} L2={torch.mean(eud).item():.2f}cm  Acc={accuracy:.2f}")
 
+
         
     if visualize:
         keypoint_np = keypoint_label.detach().cpu().numpy()
@@ -131,7 +135,7 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
 
         img1 = plotMultiKeypoint([keypoint_np[k]], config.ONLY_LOWER_BODY, limit=[(0, 1), (0, 1), (0, 1)])
         img2 = plotMultiKeypoint([keypoint_pred_np[k]], config.ONLY_LOWER_BODY, limit=[(0, 1), (0, 1), (0, 1)])
-        
+
 
         if config.PREDICT_MIDDLE:
             tactile_idx = config.WINDOW_SIZE//2 - 1
@@ -142,13 +146,14 @@ def run_epoch(config, model, dataloader, softmax, optimizer,  writer, epoch, vis
         img4 = plotTactile(tactile_right_np[k][tactile_idx])
         img5 = plot_action_confusion_matrix(class_history)
 
+
         # Log images
         writer.add_image(f'{name}/Images/Keypoint_True', img1, epoch, dataformats='HWC')
         writer.add_image(f'{name}/Images/Keypoint_Pred', img2, epoch, dataformats='HWC')
         writer.add_image(f'{name}/Images/TactileLeft', img3, epoch, dataformats='HWC')
         writer.add_image(f'{name}/Images/TactileRight', img4, epoch, dataformats='HWC')
         writer.add_image(f'{name}/Images/Action_Confusion_matrix', img5, epoch, dataformats='HWC')
-     
+
     for key in history.keys():
         history[key] = np.mean(history[key])
     
@@ -160,7 +165,7 @@ if __name__ == "__main__":
     config.ONLY_LOWER_BODY = True
     if config.ONLY_LOWER_BODY:
         config.KP_NUM = 6
-        
+
     # create log directory
     log_name = input("Enter Run name: ")
     current_time = datetime.now().strftime('%b%d_%H-%M-%S')
@@ -168,14 +173,13 @@ if __name__ == "__main__":
     writer = SummaryWriter(log_dir=log_dir)
     
     #load model
-    
-    # model = model_dict[config.MODEL](config)
     model = Tactile2PoseAction(config)
     
     if config.ONLY_LOWER_BODY:
         softmax = SpatialSoftmax3D(20,20,18,6)
     else:
         softmax = SpatialSoftmax3D(20,20,25,19)
+
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch.cuda.device_count() > 1:
@@ -210,7 +214,6 @@ if __name__ == "__main__":
         print(f"===Start {config.NAME} Tactile2Pose Training===")      
         best_val_loss = np.inf
         best_l2_dist = np.inf
-        
 
         for epoch in range(config.EPOCHS):
             train_history =  run_epoch(config, model, train_dataloader, softmax, optimizer, writer, epoch, device=device, name="train")
@@ -242,6 +245,7 @@ if __name__ == "__main__":
                 torch.save(model, os.path.join(writer.log_dir, "best_model_l2.pth"))    
             
         print(f"Best model val_loss: {best_val_loss}")
+
         print(f"===End Training===\n\n")
         
         
