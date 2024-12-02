@@ -4,7 +4,7 @@ import time
 import json
 import numpy as np
 import torch
-from collections import deque
+from collections import deque,  Counter
 import cv2
 
 from config import Tactile2PoseConfig
@@ -56,17 +56,22 @@ class UnityCommunicator:
         self.port = unity_port
         self.model = model
         self.device = next(self.model.parameters()).device
-        self.softmax = SpatialSoftmax3D(20, 20, 18, 19).to(self.device)
+        
+        if config.ONLY_LOWER_BODY:
+            self.softmax = SpatialSoftmax3D(20,20,18,6).to(self.device)
+        else:
+            self.softmax = SpatialSoftmax3D(20,20,25,19).to(self.device)
         self.tactile_sensor = tactile_sensor
         self.left_tactile_window = deque(maxlen=window_size)
         self.right_tactile_window = deque(maxlen=window_size)
+        self.action_window=deque(maxlen=5)
         
         self.is_only_lower_body = config.ONLY_LOWER_BODY
         
     def _denormalize_keypoints(self, normalized_keypoints) -> torch.Tensor:
         restored_keypoints = normalized_keypoints.clone()
         restored_keypoints[:,:2] -= 0.5
-        restored_keypoints *= 2.0
+        restored_keypoints *= 4.0
         # x,y좌표 뒤집기
         restored_keypoints[:,0] *= -1
         restored_keypoints[:,1] *= -1
@@ -109,7 +114,10 @@ class UnityCommunicator:
         action_idx = torch.argmax(action_prd, dim=1)
         
         action_class = action_idx[0].item()
-        return {'keypoints': keypoints, 'action_class': action_class}
+        self.action_window.append(action_class)
+        action_counts = Counter(self.action_window)
+        most_common_action = action_counts.most_common(1)[0][0]
+        return {'keypoints': keypoints, 'action_class': most_common_action}
         
     def run_with_testdata(self) -> None:
         def _load_test_data():
@@ -335,8 +343,8 @@ class UnityCommunicator:
         
         print("Press any thing to start calibration")
         input()
-        print("Calibration done")
         left_range, right_range = _calibration()
+        print("Calibration done")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
             unity_socket.bind((self.host, self.port))
             unity_socket.listen(1)
@@ -404,11 +412,13 @@ if __name__ == "__main__":
     
     # Load model
     config = Tactile2PoseConfig()
-    config.ONLY_LOWER_BODY = False
+    config.ONLY_LOWER_BODY = True
+    if config.ONLY_LOWER_BODY:
+        config.KP_NUM = 6
     # model = Tactile2PoseVRHeatmap(config)
     model = Tactile2PoseAction(config)
     
-    model_path = ".\\models\\best_model_tactile_v2.pth"
+    model_path = ".\\models\\best_model_tactile_v2_lowerbody.pth"
     try:
         model.load_state_dict(torch.load(model_path).state_dict())
     except:
@@ -418,8 +428,8 @@ if __name__ == "__main__":
     
     num_client = 2
     sensor = WifiSensor(
-        # host='192.168.0.2',  # Localhost
-        host='127.0.0.1',
+        host='192.168.0.2',  # Localhost
+        # host='127.0.0.1',
         port=7000,  # Port to listen on (non-privileged ports are > 1023)
         num_client=num_client,
         insole_ID=1
@@ -427,8 +437,8 @@ if __name__ == "__main__":
     
     unity_communicator = UnityCommunicator(config, model, '127.0.0.1', 12345, sensor, window_size=20)
     
-    # sensor.start()
+    sensor.start()
     
-    unity_communicator.run_with_testdata_only_tactile()
-    # unity_communicator.run_with_realtime_only_tactile()
+    # unity_communicator.run_with_testdata_only_tactile()
+    unity_communicator.run_with_realtime_only_tactile()
     

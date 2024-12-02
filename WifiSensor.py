@@ -150,7 +150,8 @@ if __name__ == "__main__":
     sensor = WifiSensor(
         host='192.168.0.2',  # Localhost
         port=7000,  # Port to listen on (non-privileged ports are > 1023)
-        num_client=num_client,
+        num_client=num_client, 
+        insole_ID = 1
     )
     sensor.start()
 
