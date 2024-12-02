@@ -51,7 +51,7 @@ def visualize_insole(tactile_left, tactile_right, fps=None):
     return img_color
 
 class UnityCommunicator:
-    def __init__(self, model, host, unity_port, tactile_sensor, window_size=20) -> None:
+    def __init__(self, config, model, host, unity_port, tactile_sensor, window_size=20) -> None:
         self.host = host
         self.port = unity_port
         self.model = model
@@ -60,9 +60,8 @@ class UnityCommunicator:
         self.tactile_sensor = tactile_sensor
         self.left_tactile_window = deque(maxlen=window_size)
         self.right_tactile_window = deque(maxlen=window_size)
-
-        self.tactile_min = float("inf") 
-        self.tactile_max = float("-inf") 
+        
+        self.is_only_lower_body = config.ONLY_LOWER_BODY
         
     def _denormalize_keypoints(self, normalized_keypoints) -> torch.Tensor:
         restored_keypoints = normalized_keypoints.clone()
@@ -76,8 +75,8 @@ class UnityCommunicator:
     
     def _normalize_keypoints(self, keypoints) -> torch.Tensor:
         normalized_keypoints = keypoints.clone()
-        # normalized_keypoints[:,0] *= -1
-        # normalized_keypoints[:,1] *= -1
+        normalized_keypoints[:,0] *= -1
+        normalized_keypoints[:,1] *= -1
         
         normalized_keypoints /= 2.0
         normalized_keypoints[:,:2] += 0.5
@@ -102,7 +101,10 @@ class UnityCommunicator:
 
         heatmap_pred = torch.clip(heatmap_pred, 0, None)
         keypoint_out, _ = self.softmax(heatmap_pred)
-        keypoints = self._denormalize_keypoints(keypoint_out[0, UNITY_INDEXS, :]).detach().cpu().numpy().tolist()
+        if self.is_only_lower_body:
+            keypoints = self._denormalize_keypoints(keypoint_out[0, [4,5], :]).detach().cpu().numpy().tolist()
+        else:
+            keypoints = self._denormalize_keypoints(keypoint_out[0, [11,12], :]).detach().cpu().numpy().tolist()
     
         action_idx = torch.argmax(action_prd, dim=1)
         
@@ -164,7 +166,7 @@ class UnityCommunicator:
                         (tactile_left, tactile_right, keypoint_vr), data_iterator = _get_next_data(data_iterator, data_loader)
                               
                         model_output_data = self.model_inference_vr_kps(tactile_left, tactile_right, keypoint_data)
-                        print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['action_class']}")
+                        print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, \n{model_output_data['keypoints'][1]},\n{model_output_data['action_class']}")
                         conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
                         
                     except json.JSONDecodeError as e:
@@ -301,22 +303,112 @@ class UnityCommunicator:
                     model_output_data = self.model_inference_tactile(tactile_left, tactile_right)
                     print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['action_class']}")
                     conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
-                    
+                    time.sleep(0.05) 
                 except json.JSONDecodeError as e:
                     print(f"JSON 디코드 에러: {e}")
                 except Exception as e:
                     print(f"예외 발생: {e}")
-    
+         
+    def run_with_realtime_only_tactile(self) -> None:
+        def _calibration(min_q=0.05, max_q= 0.95,steps=200):
+            left_tactile_vals = []
+            right_tactile_vals = []
+            for step in range(steps):
+                for _, sender_ID, _, ts, data_matrix in sensor.get_all():
+                    if sender_ID == 1:
+                        data_matrixL = data_matrix
+                    elif sender_ID == 2:
+                        data_matrixR = data_matrix
+                    else:
+                        raise RuntimeError
+
+                tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.tactile_sensor.insole_ID) 
+                left_tactile_vals.append(tactile_left)
+                right_tactile_vals.append(tactile_right)
+                print(f"Calibration step: {step}/{steps}")
+            all_left_values = np.concatenate(left_tactile_vals, axis=0)
+            all_right_values = np.concatenate(right_tactile_vals, axis=0)
+            
+            left_range = [np.quantile(all_left_values, min_q), np.quantile(all_left_values, max_q)]
+            right_range = [np.quantile(all_right_values, min_q), np.quantile(all_right_values, max_q)]
+            return left_range, right_range
+        
+        print("Press any thing to start calibration")
+        input()
+        print("Calibration done")
+        left_range, right_range = _calibration()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
+            unity_socket.bind((self.host, self.port))
+            unity_socket.listen(1)
+            print(f"Python 서버가 {self.host}:{self.port}에서 대기 중 입니다.")
+            conn, addr = unity_socket.accept()
+            print(f"{addr}, Unity가 연결되었습니다.")
+            
+            start_time = time.time()
+            fps=0
+            frame_count =0 
+
+            while True:
+                try:
+                    for _, sender_ID, _, ts, data_matrix in sensor.get_all():
+                        if sender_ID == 1:
+                            data_matrixL = data_matrix
+                        elif sender_ID == 2:
+                            data_matrixR = data_matrix
+                        else:
+                            raise RuntimeError
+
+                    tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.tactile_sensor.insole_ID) 
+                    # img_color = visualize_insole(tactile_left, tactile_right, fps)
+
+                    tactile_left = minmax_normalization(tactile_left, left_range[0], left_range[1])
+                    tactile_right = minmax_normalization(tactile_right, right_range[0], right_range[1])
+
+                    #큐에서 데이터 가져오기.
+                    self.left_tactile_window.append(tactile_left)
+                    self.right_tactile_window.append(tactile_right)
+                    if len(self.right_tactile_window) < 20 or len(self.left_tactile_window) < 20:
+                        print("모으는중")
+                        continue
+
+                    tactile_left = torch.tensor(list(self.left_tactile_window)).unsqueeze(0).to(self.device).float()
+                    tactile_right = torch.tensor(list(self.right_tactile_window)).unsqueeze(0).to(self.device).float()
+                    
+                    model_output_data = self.model_inference_tactile(tactile_left, tactile_right)
+
+                    conn.sendall((json.dumps(model_output_data) + "\n").encode('utf-8'))
+                    # print(f"Unity에 보낼 Model 데이터: {model_output_data['keypoints'][0]}, {model_output_data['action_class']}")
+                except json.JSONDecodeError as e:
+                    print(f"JSON 디코드 에러: {e}")
+                except Exception as e:
+                    print(f"예외 발생: {e}")
+                    pass
+                
+                # cv2.imshow("Pressure Matrix Visualization", img_color)
+                # if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit the loop
+                #     break
+                    
+                frame_count += 1
+                current_time = time.time()
+                elapsed_time = current_time - start_time
+
+                if elapsed_time > 1:
+                    fps = frame_count / elapsed_time
+                    print(f"FPS: {fps:.2f}")
+                    frame_count = 0
+                    start_time = time.time()
+                    
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"device: {device}")
     
     # Load model
     config = Tactile2PoseConfig()
+    config.ONLY_LOWER_BODY = False
     # model = Tactile2PoseVRHeatmap(config)
     model = Tactile2PoseAction(config)
     
-    model_path = ".\\models\\best_model_only_tactile.pth"
+    model_path = ".\\models\\best_model_tactile_v2.pth"
     try:
         model.load_state_dict(torch.load(model_path).state_dict())
     except:
@@ -326,17 +418,17 @@ if __name__ == "__main__":
     
     num_client = 2
     sensor = WifiSensor(
-        host='192.168.0.2',  # Localhost
-        # host='127.0.0.1',
+        # host='192.168.0.2',  # Localhost
+        host='127.0.0.1',
         port=7000,  # Port to listen on (non-privileged ports are > 1023)
         num_client=num_client,
         insole_ID=1
     )
     
-    unity_communicator = UnityCommunicator(model, '127.0.0.1', 12345, sensor, window_size=20)
+    unity_communicator = UnityCommunicator(config, model, '127.0.0.1', 12345, sensor, window_size=20)
     
-    sensor.start()
+    # sensor.start()
     
-    # unity_communicator.run_with_testdata()
-    unity_communicator.run_with_realtime()
+    unity_communicator.run_with_testdata_only_tactile()
+    # unity_communicator.run_with_realtime_only_tactile()
     
