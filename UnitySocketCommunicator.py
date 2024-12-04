@@ -69,6 +69,8 @@ class UnityCommunicator:
         self.action_weights = np.linspace(0.1,1.0,window_size)
         
         self.is_only_lower_body = config.ONLY_LOWER_BODY
+        self.left_range = [2929.0, 3051.0]
+        self.right_range = [2915.0, 3077.0]
         
     def _denormalize_keypoints(self, normalized_keypoints) -> torch.Tensor:
         restored_keypoints = normalized_keypoints.clone()
@@ -353,10 +355,10 @@ class UnityCommunicator:
             right_range = [np.quantile(all_right_values, min_q), np.quantile(all_right_values, max_q)]
             return left_range, right_range
         
-        print("Press any thing to start calibration")
-        input()
-        left_range, right_range = _calibration()
-        print("Calibration done")
+        # print("Press any thing to start calibration")
+        # input()
+        # left_range, right_range = _calibration()
+        # print("Calibration done")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
             unity_socket.bind((self.host, self.port))
             unity_socket.listen(1)
@@ -381,8 +383,8 @@ class UnityCommunicator:
                     tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.tactile_sensor.insole_ID) 
                     # img_color = visualize_insole(tactile_left, tactile_right, fps)
 
-                    tactile_left = minmax_normalization(tactile_left, left_range[0], left_range[1])
-                    tactile_right = minmax_normalization(tactile_right, right_range[0], right_range[1])
+                    tactile_left = minmax_normalization(tactile_left, self.left_range[0], self.left_range[1])
+                    tactile_right = minmax_normalization(tactile_right, self.right_range[0], self.right_range[1])
 
                     #큐에서 데이터 가져오기.
                     self.left_tactile_window.append(tactile_left)
