@@ -60,7 +60,7 @@ class UnityCommunicator:
         if config.ONLY_LOWER_BODY:
             self.softmax = SpatialSoftmax3D(20,20,18,6).to(self.device)
         else:
-            self.softmax = SpatialSoftmax3D(20,20,25,19).to(self.device)
+            self.softmax = SpatialSoftmax3D(20,20,18,19).to(self.device)
         self.tactile_sensor = tactile_sensor
         self.left_tactile_window = deque(maxlen=window_size)
         self.right_tactile_window = deque(maxlen=window_size)
@@ -77,7 +77,7 @@ class UnityCommunicator:
         restored_keypoints[:,:2] -= 0.5
         #x,z:multiply 2.0 , y: multiply 4.0
         restored_keypoints *= 2.0
-        restored_keypoints[:,1] *= 2.0 
+        restored_keypoints[:,1] *= 3.0 
         
         # x,y좌표 뒤집기
         restored_keypoints[:,0] *= -1
@@ -332,7 +332,7 @@ class UnityCommunicator:
                     break
          
     def run_with_realtime_only_tactile(self) -> None:
-        def _calibration(min_q=0.05, max_q= 0.95,steps=200):
+        def _calibration(min_q=0.02, max_q= 0.98,steps=200):
             left_tactile_vals = []
             right_tactile_vals = []
             for step in range(steps):
@@ -426,13 +426,14 @@ if __name__ == "__main__":
     
     # Load model
     config = Tactile2PoseConfig()
-    config.ONLY_LOWER_BODY = True
+    config.ONLY_LOWER_BODY = False
     if config.ONLY_LOWER_BODY:
         config.KP_NUM = 6
     # model = Tactile2PoseVRHeatmap(config)
     model = Tactile2PoseAction(config)
     
-    model_path = ".\\models\\best_model_tactile_v2_lowerbody.pth"
+    # model_path = ".\\models\\best_model_tactile_v2_lowerbody.pth"
+    model_path = ".\\models\\best_model_tactile_v2.pth"
     try:
         model.load_state_dict(torch.load(model_path).state_dict())
     except:
@@ -454,5 +455,5 @@ if __name__ == "__main__":
     # sensor.start()
     
     unity_communicator.run_with_testdata_only_tactile()
-    # unity_communicator.run_with_realtime_only_tactile()
+    unity_communicator.run_with_realtime_only_tactile()
     
