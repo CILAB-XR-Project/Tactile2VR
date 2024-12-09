@@ -60,18 +60,25 @@ class UnityCommunicator:
         if config.ONLY_LOWER_BODY:
             self.softmax = SpatialSoftmax3D(20,20,18,6).to(self.device)
         else:
-            self.softmax = SpatialSoftmax3D(20,20,25,19).to(self.device)
+            self.softmax = SpatialSoftmax3D(20,20,18,19).to(self.device)
         self.tactile_sensor = tactile_sensor
         self.left_tactile_window = deque(maxlen=window_size)
         self.right_tactile_window = deque(maxlen=window_size)
-        self.action_window=deque(maxlen=5)
+        
+        self.action_window=deque(maxlen=window_size)
+        self.action_weights = np.linspace(0.1,1.0,window_size)
         
         self.is_only_lower_body = config.ONLY_LOWER_BODY
+        self.left_range = [2929.0, 3051.0]
+        self.right_range = [2915.0, 3077.0]
         
     def _denormalize_keypoints(self, normalized_keypoints) -> torch.Tensor:
         restored_keypoints = normalized_keypoints.clone()
         restored_keypoints[:,:2] -= 0.5
-        restored_keypoints *= 4.0
+        #x,z:multiply 2.0 , y: multiply 4.0
+        restored_keypoints *= 2.0
+        restored_keypoints[:,1] *= 3.0 
+        
         # x,y좌표 뒤집기
         restored_keypoints[:,0] *= -1
         restored_keypoints[:,1] *= -1
@@ -113,11 +120,17 @@ class UnityCommunicator:
     
         action_idx = torch.argmax(action_prd, dim=1)
         
+        # get current action class by weighted voting
         action_class = action_idx[0].item()
         self.action_window.append(action_class)
-        action_counts = Counter(self.action_window)
-        most_common_action = action_counts.most_common(1)[0][0]
-        return {'keypoints': keypoints, 'action_class': most_common_action}
+        weighted_counts = {}
+        for i, act_idx in enumerate(self.action_window):
+            weighted_counts[act_idx] = weighted_counts.get(act_idx, 0) + self.action_weights[i]
+        cur_action_pred = max(weighted_counts, key=weighted_counts.get)
+        
+        # action_counts = Counter(self.action_window)
+        # most_common_action = action_counts.most_common(1)[0][0]
+        return {'keypoints': keypoints, 'action_class': cur_action_pred}
         
     def run_with_testdata(self) -> None:
         def _load_test_data():
@@ -316,9 +329,10 @@ class UnityCommunicator:
                     print(f"JSON 디코드 에러: {e}")
                 except Exception as e:
                     print(f"예외 발생: {e}")
+                    break
          
     def run_with_realtime_only_tactile(self) -> None:
-        def _calibration(min_q=0.05, max_q= 0.95,steps=200):
+        def _calibration(min_q=0.02, max_q= 0.98,steps=200):
             left_tactile_vals = []
             right_tactile_vals = []
             for step in range(steps):
@@ -341,10 +355,10 @@ class UnityCommunicator:
             right_range = [np.quantile(all_right_values, min_q), np.quantile(all_right_values, max_q)]
             return left_range, right_range
         
-        print("Press any thing to start calibration")
-        input()
-        left_range, right_range = _calibration()
-        print("Calibration done")
+        # print("Press any thing to start calibration")
+        # input()
+        # left_range, right_range = _calibration()
+        # print("Calibration done")
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unity_socket:
             unity_socket.bind((self.host, self.port))
             unity_socket.listen(1)
@@ -369,8 +383,8 @@ class UnityCommunicator:
                     tactile_left, tactile_right = align_pressure(data_matrixL, data_matrixR, self.tactile_sensor.insole_ID) 
                     # img_color = visualize_insole(tactile_left, tactile_right, fps)
 
-                    tactile_left = minmax_normalization(tactile_left, left_range[0], left_range[1])
-                    tactile_right = minmax_normalization(tactile_right, right_range[0], right_range[1])
+                    tactile_left = minmax_normalization(tactile_left, self.left_range[0], self.left_range[1])
+                    tactile_right = minmax_normalization(tactile_right, self.right_range[0], self.right_range[1])
 
                     #큐에서 데이터 가져오기.
                     self.left_tactile_window.append(tactile_left)
@@ -390,7 +404,7 @@ class UnityCommunicator:
                     print(f"JSON 디코드 에러: {e}")
                 except Exception as e:
                     print(f"예외 발생: {e}")
-                    pass
+                    break
                 
                 # cv2.imshow("Pressure Matrix Visualization", img_color)
                 # if cv2.waitKey(1) & 0xFF == ord('q'):  # Press 'q' to quit the loop
@@ -412,13 +426,14 @@ if __name__ == "__main__":
     
     # Load model
     config = Tactile2PoseConfig()
-    config.ONLY_LOWER_BODY = True
+    config.ONLY_LOWER_BODY = False
     if config.ONLY_LOWER_BODY:
         config.KP_NUM = 6
     # model = Tactile2PoseVRHeatmap(config)
     model = Tactile2PoseAction(config)
     
-    model_path = ".\\models\\best_model_tactile_v2_lowerbody.pth"
+    # model_path = ".\\models\\best_model_tactile_v2_lowerbody.pth"
+    model_path = ".\\models\\best_model_tactile_v2.pth"
     try:
         model.load_state_dict(torch.load(model_path).state_dict())
     except:
@@ -428,8 +443,8 @@ if __name__ == "__main__":
     
     num_client = 2
     sensor = WifiSensor(
-        host='192.168.0.2',  # Localhost
-        # host='127.0.0.1',
+        # host='192.168.0.2',  # Localhost
+        host='127.0.0.1',
         port=7000,  # Port to listen on (non-privileged ports are > 1023)
         num_client=num_client,
         insole_ID=1
@@ -437,8 +452,8 @@ if __name__ == "__main__":
     
     unity_communicator = UnityCommunicator(config, model, '127.0.0.1', 12345, sensor, window_size=20)
     
-    sensor.start()
+    # sensor.start()
     
-    # unity_communicator.run_with_testdata_only_tactile()
+    unity_communicator.run_with_testdata_only_tactile()
     unity_communicator.run_with_realtime_only_tactile()
     
